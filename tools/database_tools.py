@@ -5,6 +5,7 @@ According to SQLAlchemy docs: Use async operations and proper transaction manage
 from decimal import Decimal
 from smolagents import tool
 from sqlalchemy import inspect
+import json
 
 from models.db import AsyncDatabaseManager, async_retry
 
@@ -284,8 +285,6 @@ async def get_unprocessed_urls_async(limit: int = 50) -> str:
                 "raw_date": url.raw_date,
                 "raw_location": url.raw_location,
             })
-        
-        import json
         return json.dumps(result_data, indent=2)
         
     except Exception as e:

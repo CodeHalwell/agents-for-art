@@ -16,14 +16,15 @@ from dotenv import load_dotenv
 from tools.web_tools import (
     scrape_website_safely, 
     enhanced_close_popups, 
-    enhanced_search_item
+    enhanced_search_item,
+
 )
 from tools.database_tools import (
-    add_entry_fee, 
-    add_exhibition, 
-    add_url, 
-    add_prize, 
-    describe_schema
+    add_entry_fee_async,
+    add_exhibition_async,
+    add_url_async,
+    add_prize_async,
+    describe_schema_async
 )
 from models.db import AsyncDatabaseManager
 import helium
@@ -128,7 +129,7 @@ class EnhancedAgentOrchestrator:
         # Database Agent - Enhanced with validation
         self.agents['database'] = ToolCallingAgent(
             model=self._create_base_model(self.config.DATABASE_MODEL),
-            tools=[add_entry_fee, add_exhibition, add_url, add_prize, describe_schema],
+            tools=[add_entry_fee_async, add_exhibition_async, add_url_async, add_prize_async, describe_schema_async],
             max_steps=self.config.MAX_STEPS_WORKER,
             verbosity_level=self.config.VERBOSITY,
             planning_interval=self.config.PLANNING_INTERVAL,
