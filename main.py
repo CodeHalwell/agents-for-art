@@ -31,31 +31,31 @@ browser_agent = CodeAgent(
     step_callbacks=[save_screenshot],
     max_steps=20,
     verbosity_level=2,
-    name="Browser Agent",
+    name="Browser_Agent",
     description="Can navigate with Helium, close pop-ups, press back, and do Ctrl+F searches.",
 )
 
-browser_agent.python_executor("from helium import *", browser_agent.state)
+browser_agent.python_executor("from helium import *")
 
 websearch_agent = ToolCallingAgent(
     model=InferenceClientModel(model_id=web_model_id, provider="hf-inference", token=os.environ['HF_TOKEN']),
-    tools=[WebSearchTool(), DuckDuckGoSearchTool()],
+    tools=[DuckDuckGoSearchTool()],
     max_steps=20,
-    name="Web Search Agent",
+    name="Web_Search_Agent",
     description="An agent that can search the web and collect useful URLs to add to the database",)
 
 website_scraper_agent = ToolCallingAgent(
     model=InferenceClientModel(model_id=scrape_model_id, provider="hf-inference", token=os.environ['HF_TOKEN']),
     tools=[scrape_website],
     max_steps=20,
-    name="Website Scraper Agent",
+    name="Website_Scraper_Agent",
     description="An agent that can scrape websites for information and add it to the database",)
 
 database_agent = ToolCallingAgent(
     model=InferenceClientModel(model_id=database_agent_model_id, provider="hf-inference", token=os.environ['HF_TOKEN']),
     tools=[add_entry_fee, add_exhibition, add_url, add_prize, describe_schema],
     max_steps=20,
-    name="Database Agent",
+    name="Database_Agent",
     description="An agent that can add entries to the database, including entry fees, exhibitions, URLs, and prizes.",)
 
 manager_agent = CodeAgent(
@@ -67,8 +67,8 @@ manager_agent = CodeAgent(
         website_scraper_agent,  
         database_agent
     ],
-    max_steps=20,
-    name="Manager Agent",
+    max_steps=50,
+    name="Manager_Agent",
     description="An agent that manages other agents, coordinating their actions and ensuring they work together effectively.",
     additional_authorized_imports=["os", "time", "random"],)
 
@@ -165,4 +165,4 @@ Aim for around 1000 entries in the database.
 prompt = task + "\n\n" + helium_instructions
 
 # Run the manager agent with the task
-manager_agent.run(prompt, max_steps=20)
+manager_agent.run(prompt, max_steps=50)
