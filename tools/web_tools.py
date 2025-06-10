@@ -211,7 +211,8 @@ class EnhancedBrowserManager:
             if self.driver:
                 try:
                     self.driver.quit()
-                except:
+                except Exception as close_error:
+                    print(f"Error closing browser: {close_error}")
                     pass
                 self.driver = None
             raise
@@ -221,7 +222,8 @@ class EnhancedBrowserManager:
         if self.driver:
             try:
                 self.driver.quit()
-            except:
+            except Exception as e:
+                print(f"Error closing browser: {e}")
                 pass
             finally:
                 self.driver = None
@@ -311,7 +313,7 @@ def enhanced_close_popups() -> str:
             webdriver.ActionChains(driver).send_keys(Keys.ESCAPE).perform()
             success_count += 1
             time.sleep(0.5)
-        except:
+        except WebDriverException:
             pass
         
         # Strategy 2: Look for common close button selectors
@@ -332,7 +334,7 @@ def enhanced_close_popups() -> str:
                         element.click()
                         success_count += 1
                         time.sleep(0.5)
-            except:
+            except WebDriverException:
                 continue
         
         # Strategy 3: Look for overlay elements to click
@@ -343,7 +345,7 @@ def enhanced_close_popups() -> str:
                     overlay.click()
                     success_count += 1
                     time.sleep(0.5)
-        except:
+        except WebDriverException:
             pass
         
         if success_count > 0:

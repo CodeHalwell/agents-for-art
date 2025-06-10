@@ -10,7 +10,6 @@ from typing import Optional, List, Annotated
 
 from sqlalchemy import String, Date, Numeric, Text, ForeignKey, TIMESTAMP, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 
 # ---- Modern Base with proper typing ------------------------------------------------------------------
