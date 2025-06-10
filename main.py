@@ -2,7 +2,6 @@ from smolagents import (
     CodeAgent,
     ToolCallingAgent,
     InferenceClientModel,
-    WebSearchTool,
     DuckDuckGoSearchTool
 )
 
