@@ -1,0 +1,17 @@
+[project]
+name = "artdeepresearch"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "apify>=2.6.0",
+    "crewai>=0.126.0",
+    "duckduckgo-search>=8.0.3",
+    "helium>=5.1.1",
+    "pillow>=11.2.1",
+    "python-dotenv>=1.1.0",
+    "selenium>=4.33.0",
+    "smolagents[toolkit]>=1.18.0",
+    "sqlalchemy>=2.0.41",
+]
