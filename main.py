@@ -251,112 +251,120 @@ def create_enhanced_task_prompt() -> str:
         helium_instructions = f.read()
     
     task = """
-    DATABASE SCHEMA:
-    
-    Table: urls
-    - id: INTEGER (Primary Key)
-    - raw_title: TEXT - Raw scraped title
-    - raw_date: VARCHAR(100) - Raw scraped date
-    - raw_location: VARCHAR(255) - Raw scraped location
-    - raw_description: TEXT - Raw scraped description
-    - url: VARCHAR(255) - The exhibition URL
-    - created_at, updated_at: TIMESTAMP
-    - updated_at: TIMESTAMP - Last updated timestamp
-    
-    Table: exhibitions  
-    - id: INTEGER (Primary Key)
-    - title: VARCHAR(255) - Exhibition title
-    - date_start: DATE - Start date
-    - date_end: DATE - End date
-    - venue: VARCHAR(255) - Venue name
-    - location: VARCHAR(255) - Location
-    - county: VARCHAR(100) - UK county
-    - description: TEXT - Exhibition description
-    - url_id: INTEGER (Foreign Key -> urls.id)
-    - created_at, updated_at: TIMESTAMP
-    - updated_at: TIMESTAMP - Last updated timestamp
-    
-    Table: entry_fees
-    - id: INTEGER (Primary Key)
-    - exhibition_id: INTEGER (Foreign Key -> exhibitions.id)
-    - fee_type: VARCHAR(100) - Type of fee
-    - number_entries: INTEGER - Number of entries (if applicable)
-    - fee_amount: DECIMAL(10,2) - Fee amount
-    - flat_rate: DECIMAL(10,2) - Flat rate fee (if applicable)
-    - commission_percent: DECIMAL(5,2) - Commission percentage (if applicable)
-    
-    Table: prizes
-    - id: INTEGER (Primary Key)  
-    - exhibition_id: INTEGER (Foreign Key -> exhibitions.id)
-    - prize_rank: VARCHAR(100) - Rank of the prize (e.g., 1st, 2nd)
-    - prize_type: VARCHAR(100) - Type of prize (e.g., cash, exhibition)
-    - prize_description: TEXT - Description of the prize
-    - created_at, updated_at: TIMESTAMP
-    - updated_at: TIMESTAMP - Last updated timestamp
+        ENHANCED ART EXHIBITION RESEARCH TASK
+        This task is designed to systematically discover, extract, and catalog UK art exhibitions and open calls for the period of January 2023 to July 2026.
+        The main goal is to build a comprehensive database to analyze trends in entry fees (paid my the artist to the gallery etc.), 
+        commisions on art sales (to the gallery), prizes, and exhibition frequency.
+        This research aims to provide an art gallery with eveidence to inform their pricing strategy and exhibition planning.
 
+        DATABASE SCHEMA:
 
-    **TASK: ART EXHIBITION RESEARCH COORDINATOR**
+        Table: urls
+        - id: INTEGER (Primary Key)
+        - url: VARCHAR(255) - The exhibition URL
+        - raw_title: TEXT - Raw scraped title
+        - raw_date: VARCHAR(100) - Raw scraped date
+        - raw_location: VARCHAR(255) - Raw scraped location
+        - raw_description: TEXT - Raw scraped description
+        - created_at, updated_at: TIMESTAMP
 
-    **OBJECTIVE:**
+        Table: exhibitions  
+        - id: INTEGER (Primary Key)
+        - title: VARCHAR(255) - Exhibition title
+        - date_start: DATE - Start date
+        - date_end: DATE - End date
+        - venue: VARCHAR(255) - Venue name
+        - location: VARCHAR(255) - Location
+        - county: VARCHAR(100) - UK county
+        - description: TEXT - Exhibition description
+        - url_id: INTEGER (Foreign Key -> urls.id)
+        - created_at, updated_at: TIMESTAMP
 
-    Systematically discover, extract, and catalog UK art exhibitions and open calls for the period of January 2023 to July 2026. 
-    The current date is June 11, 2025 and therefore looking for data on past, present and future events. The primary goal is to build a comprehensive database to analyze trends in entry fees, prizes, and exhibition frequency.
+        Table: entry_fees
+        - id: INTEGER (Primary Key)
+        - exhibition_id: INTEGER (Foreign Key -> exhibitions.id)
+        - fee_type: VARCHAR(100) - Type of fee
+        - amount: DECIMAL(10,2) - Fee amount
+        - currency: VARCHAR(10) - Currency code
+        - description: TEXT - Fee description
 
-    **SUCCESS CRITERIA:**
+        Table: prizes
+        - id: INTEGER (Primary Key)  
+        - exhibition_id: INTEGER (Foreign Key -> exhibitions.id)
+        - prize_name: VARCHAR(255) - Prize name
+        - amount: DECIMAL(10,2) - Prize amount
+        - currency: VARCHAR(10) - Currency code
+        - description: TEXT - Prize description
 
-    * **Volume:** Collect and store 1000+ unique exhibition entries.
-    * **Completeness:** Include complete entry fee structures (tiered, flat) and capture prize information where available.
-    * **Data Integrity:** Maintain high standards of data quality and consistency.
+        **TASK: ART EXHIBITION RESEARCH COORDINATOR**
 
-    **AGENT WORKFLOW (Iterative Sequence):**
+        **OBJECTIVE:**
 
-    This task follows a structured, iterative workflow. After an initial search phase, you will process and save data for one URL at a time.
-    It may be helpful to review the database schema before starting the task. The schema is available in the `describe_schema` tool.
+        Systematically discover, extract, and catalog UK art exhibitions and open calls for the period of January 2023 to July 2026.
+        The current date is June 11, 2025 and therefore looking for data on past, present and future events. The primary goal is to build a comprehensive database to analyze trends in entry fees, prizes, and exhibition frequency.
 
-    1.  **SEARCH PHASE (Web_Search_Specialist):**
+        **SUCCESS CRITERIA:**
+
+        * **Volume:** Collect and store 1000+ unique exhibition entries.
+        * **Completeness:** Include complete entry fee structures (tiered, flat) and capture prize information where available.
+        * **Data Integrity:** Maintain high standards of data quality and consistency.
+
+        **AGENT WORKFLOW (Iterative Sequence):**
+
+        This task follows a structured, iterative workflow. After an initial search phase, you will process and save data for one URL at a time.
+
+        1. **SEARCH PHASE (Web_Search_Specialist):**
         * **Find Aggregators:** Identify UK art exhibition aggregator sites, prioritizing `ArtRabbit`, `Artlyst`, and `The Art Newspaper`.
-        * **Search Topics:** Use queries like `"UK art open call 2023"`, `"UK art open call 2024"`, `"UK art open call 2025"`, 
-        `"UK art open call 2026"`, `"UK art exhibition 2024"`, and `"UK art fair 2025"`.
+        * **Search Topics:** Use queries like `"UK art open call 2023"`, `"UK art open call 2024"`, `"UK art open call 2025"`,
+            `"UK art open call 2026"`, `"UK art exhibition 2024"`, and `"UK art fair 2025"`.
         * **URL Collection:** Collect an initial batch of 100-200 relevant URLs before proceeding to the next phase.
 
-    2.  **ITERATIVE PROCESSING LOOP (For each URL):**
+        2. **ITERATIVE PROCESSING LOOP (For each URL):**
 
-        * **A. NAVIGATION PHASE (Browser_Navigation_Agent):**
-            * Navigate to the next URL in the queue.
-            * Handle any pop-ups or cookie banners to access page content.
-            * Search the page for key terms: `"entry fee"`, `"submission fee"`, `"prize"`.
+        A. **TRADITIONAL WEBSCRAPING PHASE (WebScraping_Agent):**
+        * Perform an HTTP GET request to retrieve the raw HTML for the URL.
+        * Parse the HTML using a standard parser (e.g., BeautifulSoup).
+        * Extract raw page content and search for key terms: `"entry fee"`, `"submission fee"`, `"prize"`.
+        * Save the raw HTML and any extracted snippets.
+        * If the page is fully static and content was successfully extracted, proceed to Extraction & Storage Phase.
+        * If essential content is missing (e.g., requires JavaScript), fall back to the Browser Navigation Phase.
 
-        * **B. EXTRACTION & STORAGE PHASE (Content_Extraction_Specialist & Database_Management_Specialist):**
-            * This phase must be completed for each URL before starting the next.
-            * **Extraction:**
-                * **Exhibition Details:** Extract `title`, `dates`, `venue`, `location`, `county`, `description`.
-                * **Fee Structures:** Extract `fee type` (tiered vs flat) and associated costs.
-                * **Prize Information:** Extract `prize rank`, `amount`, and `type`.
-            * **Storage (Immediate & Sequential):**
-                * **First:** Store the URL with its raw, unprocessed data using a function like `add_url_async()`.
-                * **Then:** Store the structured exhibition details using `add_exhibition_async()`.
-                * **Then:** Store the structured entry fee information using `add_entry_fee_async()`.
-                * **Finally:** Store the structured prize information using `add_prize_async()`.
+        B. **NAVIGATION PHASE (Browser_Navigation_Agent):**
+        * Navigate to the URL in a headless browser.
+        * Handle pop-ups, cookie banners, and any dynamic loading required to access content.
+        * Search within the rendered page for key terms: `"entry fee"`, `"submission fee"`, `"prize"`.
 
-    **DATA QUALITY REQUIREMENTS:**
+        C. **EXTRACTION & STORAGE PHASE (Content_Extraction_Specialist & Database_Management_Specialist):**
+        * **Extraction:**
+            - **Exhibition Details:** Extract `title`, `dates`, `venue`, `location`, `county`, `description`.
+            - **Fee Structures:** Identify `fee type` (tiered vs flat) and associated costs.
+            - **Prize Information:** Extract `prize name`, `amount`, and `description`.
+        * **Storage (Immediate & Sequential):**
+            1. Store the URL and raw data using `add_url_async()`.
+            2. Store structured exhibition details with `add_exhibition_async()`.
+            3. Store entry fee data with `add_entry_fee_async()`.
+            4. Store prize data with `add_prize_async()`.
 
-    * **Date Format:** Validate all dates are in `YYYY-MM-DD` format.
-    * **Numeric Fees:** Ensure all fee and prize amounts are numeric (e.g., `25.00`).
-    * **Deduplication:** Check for and prevent duplicate URL or exhibition entries.
-    * **Field Verification:** Verify that all required database fields are present before storage.
+        **DATA QUALITY REQUIREMENTS:**
 
-    **ERROR HANDLING:**
+        * **Date Format:** Validate all dates are in `YYYY-MM-DD` format.
+        * **Numeric Fees:** Ensure all fee and prize amounts are numeric (e.g., `25.00`).
+        * **Deduplication:** Check for and prevent duplicate URL or exhibition entries.
+        * **Field Verification:** Verify that all required database fields are present before storage.
 
-    * **Retries:** Retry failed network requests up to 3 times.
-    * **Skip & Log:** If a URL remains problematic, log the error and skip to the next URL. The process must not stop.
-    * **Rate Limiting:** Implement a randomized delay of 2-8 seconds between requests.
+        **ERROR HANDLING:**
 
-    **EFFICIENCY & COORDINATION STRATEGY:**
+        * **Retries:** Retry failed HTTP requests or browser actions up to 3 times.
+        * **Skip & Log:** If a URL remains problematic, log the error and skip to the next URL without stopping the process.
+        * **Rate Limiting:** Implement a randomized delay of 2-8 seconds between requests to avoid server overload.
 
-    * **Batching:** Process URLs in logical batches of 10-20 to manage workflow.
-    * **Prioritization:** Prioritize high-value aggregator sites and exhibitions with clear fee structures.
-    * **SmolAgents Best Practices:** Reduce LLM calls by batching similar operations (like the initial search) and using deterministic validation (e.g., regex for dates) wherever possible. Delegate specialized tasks to the appropriate agents and integrate results efficiently.
-    """
+        **EFFICIENCY & COORDINATION STRATEGY:**
+
+        * **Batching:** Process URLs in batches of 10-20 to optimize resource usage.
+        * **Prioritization:** Focus first on high-value aggregator sites and exhibitions with clear fee structures.
+        * **SmolAgents Best Practices:** Minimize LLM calls by batching similar operations and using deterministic validation (e.g., regex) wherever possible.
+
+            """
     
     return task + "\n\n" + helium_instructions
 
