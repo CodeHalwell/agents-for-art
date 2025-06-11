@@ -27,7 +27,12 @@ from tools.database_tools import (
     add_prize,
     describe_schema,
     get_unprocessed_urls,
-    get_exhibition_stats
+    get_exhibition_stats,
+    bulk_insert_exhibitions,
+    get_exhibitions_by_criteria,
+    generate_fee_analysis_report,
+    cleanup_duplicate_entries,
+    add_database_indexes
 )
 from models.db import AsyncDatabaseManager
 import helium
@@ -49,12 +54,12 @@ class AgentConfig:
     else:
         SCRAPE_MODEL = "gpt-4o-mini"
         WEB_MODEL = "gpt-4o-mini"
-        MANAGER_MODEL = "gpt-4.1"
-        BROWSER_MODEL = "gpt-4o"
-        DATABASE_MODEL = "gpt-4o"
+        MANAGER_MODEL = "gpt-4o"
+        BROWSER_MODEL = "gpt-4o-mini"
+        DATABASE_MODEL = "gpt-4o-mini"
     
     # Agent parameters following best practices
-    MAX_STEPS_WORKER = 15  # Reduced from 20 for efficiency
+    MAX_STEPS_WORKER = 10  # Reduced from 20 for efficiency
     MAX_STEPS_MANAGER = 40  # Reduced from 50 for efficiency
     VERBOSITY = 1  # Reduced verbosity for cleaner logs
     
@@ -159,7 +164,12 @@ class EnhancedAgentOrchestrator:
         # Database Agent - Enhanced with validation
         self.agents['database'] = ToolCallingAgent(
             model=self._create_model(self.config.DATABASE_MODEL),
-            tools=[add_entry_fee, add_exhibition, add_url, add_prize, describe_schema, get_unprocessed_urls, get_exhibition_stats],
+            tools=[
+                add_entry_fee, add_exhibition, add_url, add_prize, describe_schema, 
+                get_unprocessed_urls, get_exhibition_stats, bulk_insert_exhibitions,
+                get_exhibitions_by_criteria, generate_fee_analysis_report,
+                cleanup_duplicate_entries, add_database_indexes
+            ],
             max_steps=self.config.MAX_STEPS_WORKER,
             verbosity_level=self.config.VERBOSITY,
             planning_interval=self.config.PLANNING_INTERVAL,
@@ -168,6 +178,8 @@ class EnhancedAgentOrchestrator:
             description=(
                 "Specialized agent for database operations. "
                 "Stores exhibition data, entry fees, prizes, and URLs with validation. "
+                "Includes advanced features like bulk operations, criteria-based queries, "
+                "analytics reporting, duplicate cleanup, and performance optimization. "
                 "Ensures data consistency and handles duplicates properly."
             ),
         )

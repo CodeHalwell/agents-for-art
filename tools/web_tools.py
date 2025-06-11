@@ -368,11 +368,11 @@ def cleanup_resources():
     if _browser_manager:
         _browser_manager.close_browser()
 
-# Synchronous wrapper for scrape_website_safely
+# Synchronous scraping implementation
 @tool
 def scrape_website(url: str) -> str:
     """
-    Enhanced website scraping with rate limiting and error handling (synchronous wrapper).
+    Enhanced website scraping with rate limiting and error handling (synchronous implementation).
     
     Args:
         url (str): The URL to scrape for text and links.
@@ -381,8 +381,90 @@ def scrape_website(url: str) -> str:
         A string containing the extracted text content and links from the website.
         Returns an error message string if scraping fails.
     """
-    import asyncio
-    return asyncio.run(scrape_website_safely(url))
+    try:
+        import time
+        import random
+        import requests
+        
+        # Try BeautifulSoup first, fall back to basic parsing if not available
+        try:
+            from bs4 import BeautifulSoup
+            use_bs4 = True
+        except ImportError:
+            use_bs4 = False
+        
+        # Simple rate limiting
+        time.sleep(random.uniform(2.0, 8.0))
+        
+        # Create session with user agent
+        session = requests.Session()
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        ]
+        
+        session.headers.update({
+            'User-Agent': random.choice(user_agents)
+        })
+        
+        # Make the request
+        response = session.get(url, timeout=30)
+        response.raise_for_status()
+        
+        if use_bs4:
+            # Parse with BeautifulSoup
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Extract text content more efficiently
+            # Remove script and style elements
+            for script in soup(["script", "style"]):
+                script.decompose()
+            
+            text_content = soup.get_text(strip=True, separator=' ')
+            
+            # Extract all links with better filtering
+            links = []
+            for link in soup.find_all('a', href=True):
+                # Ensure we have a Tag element that supports the get method
+                if hasattr(link, 'get'):
+                    href = link.get('href')
+                    if href and not href.startswith(('#', 'javascript:', 'mailto:')):
+                        links.append(href)
+        else:
+            # Fallback: basic text extraction using regex
+            import re
+            
+            # Remove script and style tags
+            text_content = re.sub(r'<script[^>]*>.*?</script>', '', response.text, flags=re.DOTALL | re.IGNORECASE)
+            text_content = re.sub(r'<style[^>]*>.*?</style>', '', text_content, flags=re.DOTALL | re.IGNORECASE)
+            
+            # Remove HTML tags
+            text_content = re.sub(r'<[^>]+>', ' ', text_content)
+            
+            # Clean up whitespace
+            text_content = re.sub(r'\s+', ' ', text_content).strip()
+            
+            # Extract links using regex
+            link_pattern = r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>'
+            links = re.findall(link_pattern, response.text, re.IGNORECASE)
+            
+            # Filter links
+            links = [href for href in links if href and not href.startswith(('#', 'javascript:', 'mailto:'))]
+        
+        # Limit output size to prevent token overflow
+        if len(text_content) > 10000:
+            text_content = text_content[:10000] + "... [TRUNCATED]"
+        
+        if len(links) > 50:
+            links = links[:50] + ["... [MORE LINKS TRUNCATED]"]
+        
+        result = f"Text Content:\n{text_content}\n\nLinks:\n" + '\n'.join(links)
+        session.close()
+        return result
+        
+    except Exception as e:
+        return f"Error scraping {url}: {str(e)}"
 
 
 atexit.register(cleanup_resources)
