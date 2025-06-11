@@ -117,11 +117,11 @@ async def scrape_website_safely(url: str) -> str:
     Enhanced website scraping with rate limiting and error handling.
     
     Args:
-        url: The URL to scrape for text and links.
+        url (str): The URL to scrape for text and links.
         
     Returns:
         A string containing the extracted text content and links from the website.
-        Returns error message if scraping fails.
+        Returns an error message string if scraping fails.
     """
     try:
         html_content = await _scraper.scrape_url(url)
@@ -240,9 +240,9 @@ def enhanced_search_item(text: str, nth_result: int = 1, timeout: int = 10) -> s
     Enhanced search with proper error handling and timeouts.
     
     Args:
-        text: The text to search for on the current page.
-        nth_result: Which occurrence to jump to (default: 1).
-        timeout: Maximum time to wait for elements in seconds (default: 10).
+        text (str): The text to search for on the current page.
+        nth_result (int): Which occurrence to jump to (default: 1).
+        timeout (int): Maximum time to wait for elements in seconds (default: 10).
         
     Returns:
         A string indicating the search result or error message.
@@ -367,5 +367,22 @@ def cleanup_resources():
         _scraper.close()
     if _browser_manager:
         _browser_manager.close_browser()
+
+# Synchronous wrapper for scrape_website_safely
+@tool
+def scrape_website(url: str) -> str:
+    """
+    Enhanced website scraping with rate limiting and error handling (synchronous wrapper).
+    
+    Args:
+        url (str): The URL to scrape for text and links.
+        
+    Returns:
+        A string containing the extracted text content and links from the website.
+        Returns an error message string if scraping fails.
+    """
+    import asyncio
+    return asyncio.run(scrape_website_safely(url))
+
 
 atexit.register(cleanup_resources)
