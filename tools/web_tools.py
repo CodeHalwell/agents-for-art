@@ -4,23 +4,73 @@ According to web scraping best practices: Use rate limiting, proxy rotation, and
 """
 import asyncio
 import atexit
+import hashlib
+import re
 import random
 import time
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
 
 import requests
-from bs4 import BeautifulSoup
-from smolagents import tool
-import helium
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, WebDriverException
-from smolagents.agents import ActionStep
+
+# Handle missing dependencies gracefully
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    class BeautifulSoup:
+        def __init__(self, *args, **kwargs):
+            self.text = ""
+        def __call__(self, *args, **kwargs):
+            return []
+        def get_text(self, *args, **kwargs):
+            return ""
+        def find_all(self, *args, **kwargs):
+            return []
+        def decompose(self):
+            pass
+
+try:
+    from smolagents import tool
+    from smolagents.agents import ActionStep
+except ImportError:
+    def tool(func):
+        return func
+    ActionStep = object
+
+try:
+    import helium
+    from selenium import webdriver
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.common.keys import Keys
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.common.exceptions import TimeoutException, WebDriverException
+    SELENIUM_AVAILABLE = True
+except ImportError:
+    # Mock selenium classes
+    class MockWebDriver:
+        def quit(self): pass
+        def execute_script(self, *args): pass
+        def find_elements(self, *args): return []
+    
+    class MockHelium:
+        @staticmethod
+        def start_chrome(*args, **kwargs):
+            return MockWebDriver()
+        @staticmethod
+        def get_driver():
+            return MockWebDriver()
+    
+    helium = MockHelium()
+    webdriver = MockWebDriver()
+    By = object()
+    Keys = object()
+    WebDriverWait = object
+    EC = object()
+    TimeoutException = Exception
+    WebDriverException = Exception
+    SELENIUM_AVAILABLE = False
 
 
 @dataclass
@@ -112,12 +162,14 @@ _scraper = RateLimitedScraper()
 
 
 @tool
-async def scrape_website_safely(url: str) -> str:
+async def scrape_website_safely(url: str, optimize_tokens: bool = True) -> str:
     """
     Enhanced website scraping with rate limiting and error handling.
+    Now includes token optimization features.
     
     Args:
         url (str): The URL to scrape for text and links.
+        optimize_tokens (bool): Whether to use token optimization preprocessing
         
     Returns:
         A string containing the extracted text content and links from the website.
@@ -128,6 +180,12 @@ async def scrape_website_safely(url: str) -> str:
         if not html_content:
             return f"Failed to scrape {url} - no content retrieved"
         
+        # Use token optimization if requested
+        if optimize_tokens:
+            optimized_content = preprocess_content_for_extraction(html_content)
+            return f"URL: {url}\n\n{optimized_content}"
+        
+        # Original processing for backward compatibility
         soup = BeautifulSoup(html_content, 'html.parser')
         
         # Extract text content more efficiently
@@ -169,10 +227,14 @@ class EnhancedBrowserManager:
     def __init__(self):
         self.driver = None
         self.chrome_options = None
-        self._setup_chrome_options()
+        if SELENIUM_AVAILABLE:
+            self._setup_chrome_options()
     
     def _setup_chrome_options(self):
         """Configure Chrome options for better scraping."""
+        if not SELENIUM_AVAILABLE:
+            return
+        
         self.chrome_options = webdriver.ChromeOptions()
         
         # According to anti-detection best practices
@@ -193,6 +255,9 @@ class EnhancedBrowserManager:
     @asynccontextmanager
     async def get_browser(self):
         """Context manager for browser instances with proper cleanup."""
+        if not SELENIUM_AVAILABLE:
+            raise RuntimeError("Selenium not available - browser management requires selenium installation")
+        
         try:
             if not self.driver:
                 self.driver = helium.start_chrome(
@@ -247,6 +312,9 @@ def enhanced_search_item(text: str, nth_result: int = 1, timeout: int = 10) -> s
     Returns:
         A string indicating the search result or error message.
     """
+    if not SELENIUM_AVAILABLE:
+        return "Error: Selenium not available - enhanced search requires selenium installation"
+    
     try:
         driver = helium.get_driver()
         if not driver:
@@ -302,6 +370,9 @@ def enhanced_close_popups() -> str:
     Returns:
         A string indicating the success or failure of popup closing attempts.
     """
+    if not SELENIUM_AVAILABLE:
+        return "Error: Selenium not available - popup closing requires selenium installation"
+    
     try:
         driver = helium.get_driver()
         if not driver:
@@ -358,24 +429,299 @@ def enhanced_close_popups() -> str:
         return f"Error while trying to close popups: {str(e)}"
 
 
+# Token Usage Optimization Features
+# ====================================
+
+# Content caching system
+_content_cache: Dict[str, Any] = {}
+
+@tool
+def cache_similar_content_patterns(content_hash: str, content: str = None) -> str:
+    """
+    Cache content patterns for similar content to reduce duplicate processing.
+    
+    Args:
+        content_hash (str): Hash key for the content
+        content (str, optional): Content to cache. If None, retrieves cached content.
+        
+    Returns:
+        String indicating cache operation result or cached content.
+    """
+    global _content_cache
+    
+    if content is None:
+        # Retrieve cached content
+        if content_hash in _content_cache:
+            return f"Cache hit: Retrieved content for hash {content_hash[:8]}..."
+        else:
+            return f"Cache miss: No content found for hash {content_hash[:8]}..."
+    else:
+        # Cache the content
+        _content_cache[content_hash] = {
+            'content': content,
+            'timestamp': time.time()
+        }
+        return f"Cached content with hash {content_hash[:8]}... (size: {len(content)} chars)"
+
+
+@tool
+def extract_prices_with_regex(text: str) -> str:
+    """
+    Extract prices and fees using deterministic regex patterns.
+    
+    Args:
+        text (str): Text content to extract prices from
+        
+    Returns:
+        String containing extracted price information
+    """
+    price_patterns = [
+        # UK currency formats
+        r'£\s*(\d+(?:\.\d{2})?)',                    # £25, £25.00
+        r'(\d+(?:\.\d{2})?)\s*(?:pounds?|GBP)',      # 25 pounds, 25.00 GBP
+        r'entry\s+fee[:\s]*£?\s*(\d+(?:\.\d{2})?)',  # entry fee: £25
+        r'submission\s+fee[:\s]*£?\s*(\d+(?:\.\d{2})?)',  # submission fee £25
+        r'cost[:\s]*£?\s*(\d+(?:\.\d{2})?)',         # cost: £25
+        r'price[:\s]*£?\s*(\d+(?:\.\d{2})?)',        # price: £25
+        r'fee[:\s]*£?\s*(\d+(?:\.\d{2})?)',          # fee: £25
+        r'£(\d+)\s*-\s*£(\d+)',                      # £25 - £50 (range)
+        r'(\d+)\s*-\s*(\d+)\s*(?:pounds?|GBP)',      # 25 - 50 pounds (range)
+        # Commission percentages
+        r'(\d+(?:\.\d+)?)\s*%\s*commission',         # 30% commission
+        r'commission[:\s]*(\d+(?:\.\d+)?)\s*%',      # commission: 30%
+    ]
+    
+    extracted_prices = []
+    
+    for pattern in price_patterns:
+        matches = re.finditer(pattern, text, re.IGNORECASE)
+        for match in matches:
+            context_start = max(0, match.start() - 50)
+            context_end = min(len(text), match.end() + 50)
+            context = text[context_start:context_end].strip()
+            
+            extracted_prices.append({
+                'price': match.group(0),
+                'context': context,
+                'groups': match.groups()
+            })
+    
+    if not extracted_prices:
+        return "No prices found in text"
+    
+    result = "Extracted Prices:\n"
+    for i, price_info in enumerate(extracted_prices[:10]):  # Limit to first 10 matches
+        result += f"{i+1}. {price_info['price']} (context: ...{price_info['context']}...)\n"
+    
+    if len(extracted_prices) > 10:
+        result += f"... and {len(extracted_prices) - 10} more prices found"
+    
+    return result
+
+
+@tool  
+def extract_dates_with_regex(text: str) -> str:
+    """
+    Extract dates using deterministic regex patterns.
+    
+    Args:
+        text (str): Text content to extract dates from
+        
+    Returns:
+        String containing extracted date information
+    """
+    date_patterns = [
+        # Various date formats common in UK
+        r'(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})',           # DD/MM/YYYY, DD-MM-YY
+        r'(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{2,4})',  # DD Month YYYY
+        r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{2,4})',  # Month DD, YYYY
+        r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{2,4})',  # Month YYYY
+        r'(\d{2,4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})',           # YYYY/MM/DD
+        # Deadline specific patterns
+        r'deadline[:\s]*(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})',  # deadline: DD/MM/YYYY
+        r'deadline[:\s]*(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{2,4})',  # deadline: DD Month YYYY
+        r'submission\s+deadline[:\s]*(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})',  # submission deadline DD/MM/YYYY
+        r'apply\s+by[:\s]*(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})',  # apply by DD/MM/YYYY
+        r'closes?[:\s]*(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})',     # closes DD/MM/YYYY
+        r'opens?[:\s]*(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})',      # opens DD/MM/YYYY
+        # Exhibition date ranges
+        r'(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})\s*-\s*(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})',  # DD/MM/YYYY - DD/MM/YYYY
+    ]
+    
+    extracted_dates = []
+    
+    for pattern in date_patterns:
+        matches = re.finditer(pattern, text, re.IGNORECASE)
+        for match in matches:
+            context_start = max(0, match.start() - 50)
+            context_end = min(len(text), match.end() + 50)
+            context = text[context_start:context_end].strip()
+            
+            extracted_dates.append({
+                'date': match.group(0),
+                'context': context,
+                'groups': match.groups()
+            })
+    
+    if not extracted_dates:
+        return "No dates found in text"
+    
+    result = "Extracted Dates:\n"
+    for i, date_info in enumerate(extracted_dates[:10]):  # Limit to first 10 matches
+        result += f"{i+1}. {date_info['date']} (context: ...{date_info['context']}...)\n"
+    
+    if len(extracted_dates) > 10:
+        result += f"... and {len(extracted_dates) - 10} more dates found"
+    
+    return result
+
+
+@tool
+def reduce_content_to_relevant_sections(content: str, keywords: List[str]) -> str:
+    """
+    Reduce content to sections relevant to the given keywords.
+    
+    Args:
+        content (str): Full content to filter
+        keywords (List[str]): Keywords to search for relevant sections
+        
+    Returns:
+        String containing only relevant sections of content
+    """
+    if isinstance(keywords, str):
+        keywords = [keywords]
+    
+    # Split content into paragraphs/sections
+    sections = re.split(r'\n\s*\n', content)
+    relevant_sections = []
+    
+    # Art exhibition specific keywords if none provided
+    if not keywords:
+        keywords = [
+            'exhibition', 'entry fee', 'submission', 'deadline', 'prize', 'award',
+            'competition', 'open call', 'gallery', 'artist', 'artwork', 'entry',
+            'cost', 'fee', 'commission', 'apply', 'deadline', 'closes', 'opens'
+        ]
+    
+    # Create pattern to match any keyword
+    keyword_pattern = '|'.join(re.escape(keyword.lower()) for keyword in keywords)
+    
+    for section in sections:
+        # Check if section contains any keywords
+        if re.search(keyword_pattern, section.lower()):
+            relevant_sections.append(section.strip())
+    
+    # If no relevant sections found, return first few sections
+    if not relevant_sections:
+        relevant_sections = sections[:3]  # First 3 sections as fallback
+    
+    # Join relevant sections and limit total size
+    result = '\n\n'.join(relevant_sections)
+    
+    # Ensure result doesn't exceed reasonable size
+    if len(result) > 5000:
+        result = result[:5000] + "\n... [CONTENT TRUNCATED FOR TOKEN EFFICIENCY]"
+    
+    return result
+
+
+@tool  
+def preprocess_content_for_extraction(html_content: str) -> str:
+    """
+    Preprocess HTML content to extract relevant sections before LLM analysis.
+    Combines multiple optimization strategies to reduce token usage.
+    
+    Args:
+        html_content (str): Raw HTML content to preprocess
+        
+    Returns:
+        String containing preprocessed, optimized content ready for LLM analysis
+    """
+    # Generate content hash for caching
+    content_hash = hashlib.md5(html_content.encode()).hexdigest()
+    
+    # Check cache first
+    cached_result = cache_similar_content_patterns(content_hash)
+    if "Cache hit" in cached_result:
+        cached_data = _content_cache.get(content_hash, {}).get('content', '')
+        if cached_data:
+            return f"[CACHED CONTENT]\n{cached_data}"
+    
+    try:
+        # Parse HTML with BeautifulSoup
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Remove unwanted elements that don't contain useful information
+        for element in soup(['script', 'style', 'nav', 'header', 'footer', 
+                            'aside', 'iframe', 'noscript', 'meta', 'link']):
+            element.decompose()
+        
+        # Extract text content
+        text_content = soup.get_text(strip=True, separator=' ')
+        
+        # Clean up whitespace
+        text_content = re.sub(r'\s+', ' ', text_content)
+        
+        # Use content reduction with exhibition-specific keywords
+        relevant_content = reduce_content_to_relevant_sections(
+            text_content, 
+            ['exhibition', 'entry fee', 'submission', 'deadline', 'prize', 
+             'competition', 'open call', 'cost', 'commission', 'apply']
+        )
+        
+        # Extract structured data with regex
+        prices = extract_prices_with_regex(relevant_content)
+        dates = extract_dates_with_regex(relevant_content)
+        
+        # Combine into optimized format
+        processed_content = f"""PREPROCESSED CONTENT (Token Optimized):
+
+RELEVANT TEXT:
+{relevant_content}
+
+EXTRACTED STRUCTURED DATA:
+{prices}
+
+{dates}
+"""
+        
+        # Cache the result
+        cache_similar_content_patterns(content_hash, processed_content)
+        
+        return processed_content
+        
+    except Exception as e:
+        # Fallback processing
+        text_content = re.sub(r'<[^>]+>', ' ', html_content)
+        text_content = re.sub(r'\s+', ' ', text_content).strip()
+        
+        if len(text_content) > 5000:
+            text_content = text_content[:5000] + "... [TRUNCATED]"
+        
+        return f"FALLBACK PROCESSING:\n{text_content}\n\nError: {str(e)}"
+
+
 # Clean up resources on module unload
 
 def cleanup_resources():
     """Clean up global resources."""
-    global _scraper, _browser_manager
+    global _scraper, _browser_manager, _content_cache
     if _scraper:
         _scraper.close()
     if _browser_manager:
         _browser_manager.close_browser()
+    # Clear content cache
+    _content_cache.clear()
 
-# Synchronous scraping implementation
 @tool
-def scrape_website(url: str) -> str:
+def scrape_website(url: str, optimize_tokens: bool = True) -> str:
     """
     Enhanced website scraping with rate limiting and error handling (synchronous implementation).
+    Now includes token optimization features.
     
     Args:
         url (str): The URL to scrape for text and links.
+        optimize_tokens (bool): Whether to use token optimization preprocessing
         
     Returns:
         A string containing the extracted text content and links from the website.
@@ -412,6 +758,13 @@ def scrape_website(url: str) -> str:
         response = session.get(url, timeout=30)
         response.raise_for_status()
         
+        # Use token optimization if requested
+        if optimize_tokens:
+            optimized_content = preprocess_content_for_extraction(response.text)
+            session.close()
+            return f"URL: {url}\n\n{optimized_content}"
+        
+        # Original processing for backward compatibility
         if use_bs4:
             # Parse with BeautifulSoup
             soup = BeautifulSoup(response.text, 'html.parser')
