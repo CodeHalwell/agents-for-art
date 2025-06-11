@@ -531,3 +531,407 @@ def get_exhibition_stats() -> str:
     """
     import asyncio
     return asyncio.run(get_exhibition_stats_async())
+
+
+# ───────────────────────── ENHANCED HELPER FUNCTIONS ─────────────────────────
+
+
+@tool
+async def bulk_insert_exhibitions_async(exhibitions_data_json: str) -> str:
+    """
+    Bulk insert multiple exhibitions for better performance.
+    
+    Args:
+        exhibitions_data_json: JSON string containing list of exhibition data dictionaries.
+                              Each dict should contain all required Exhibition fields.
+    
+    Returns:
+        A JSON string containing the results of the bulk insertion with exhibition IDs.
+    """
+    try:
+        import json
+        exhibitions_data = json.loads(exhibitions_data_json)
+        
+        db = await get_db_manager()
+        results = await db.bulk_insert_exhibitions(exhibitions_data)
+        
+        result_data = []
+        for exhibition in results:
+            result_data.append({
+                "id": exhibition.id,
+                "title": exhibition.title,
+                "date_start": str(exhibition.date_start),
+                "date_end": str(exhibition.date_end),
+                "venue": exhibition.venue,
+                "location": exhibition.location
+            })
+        
+        return json.dumps({
+            "success": True,
+            "count": len(result_data),
+            "exhibitions": result_data
+        }, indent=2)
+        
+    except Exception as e:
+        import json
+        return json.dumps({
+            "success": False,
+            "error": str(e),
+            "count": 0,
+            "exhibitions": []
+        }, indent=2)
+
+
+@tool
+async def get_exhibitions_by_criteria_async(
+    date_range_json: str | None = None,
+    location: str | None = None,
+    fee_range_json: str | None = None
+) -> str:
+    """
+    Query exhibitions by multiple criteria with advanced filtering.
+    
+    Args:
+        date_range_json: JSON string containing start and end dates: '["2023-01-01", "2024-12-31"]'
+        location: Location string to search for (case-insensitive)
+        fee_range_json: JSON string containing min and max fees: '[10.0, 100.0]'
+    
+    Returns:
+        A JSON string containing exhibitions matching the criteria.
+    """
+    try:
+        import json
+        
+        # Parse optional parameters
+        date_range = None
+        if date_range_json:
+            date_range = tuple(json.loads(date_range_json))
+        
+        fee_range = None
+        if fee_range_json:
+            fee_range = tuple(json.loads(fee_range_json))
+        
+        db = await get_db_manager()
+        exhibitions = await db.get_exhibitions_by_criteria(
+            date_range=date_range,
+            location=location,
+            fee_range=fee_range
+        )
+        
+        result_data = []
+        for exhibition in exhibitions:
+            exhibition_data = {
+                "id": exhibition.id,
+                "title": exhibition.title,
+                "date_start": str(exhibition.date_start),
+                "date_end": str(exhibition.date_end),
+                "venue": exhibition.venue,
+                "location": exhibition.location,
+                "county": exhibition.county,
+                "description": exhibition.description,
+                "entry_fees": [],
+                "prizes": []
+            }
+            
+            # Add entry fees if loaded
+            for fee in exhibition.entry_fees:
+                exhibition_data["entry_fees"].append({
+                    "id": fee.id,
+                    "number_entries": fee.number_entries,
+                    "fee_amount": float(fee.fee_amount) if fee.fee_amount else None,
+                    "fee_type": fee.fee_type,
+                    "commission_percent": float(fee.commission_percent) if fee.commission_percent else None
+                })
+            
+            # Add prizes if loaded
+            for prize in exhibition.prizes:
+                exhibition_data["prizes"].append({
+                    "id": prize.id,
+                    "prize_rank": prize.prize_rank,
+                    "prize_amount": float(prize.prize_amount) if prize.prize_amount else None,
+                    "prize_type": prize.prize_type,
+                    "prize_description": prize.prize_description
+                })
+            
+            result_data.append(exhibition_data)
+        
+        return json.dumps({
+            "success": True,
+            "count": len(result_data),
+            "exhibitions": result_data
+        }, indent=2)
+        
+    except Exception as e:
+        import json
+        return json.dumps({
+            "success": False,
+            "error": str(e),
+            "count": 0,
+            "exhibitions": []
+        }, indent=2)
+
+
+@tool
+async def generate_fee_analysis_report_async() -> str:
+    """
+    Generate comprehensive fee analysis report with statistics.
+    
+    Returns:
+        A JSON string containing detailed fee analysis with statistics and insights.
+    """
+    try:
+        db = await get_db_manager()
+        report = await db.generate_fee_analysis_report()
+        
+        import json
+        return json.dumps(report, indent=2)
+        
+    except Exception as e:
+        import json
+        return json.dumps({
+            "success": False,
+            "error": str(e),
+            "summary": {},
+            "tier_distribution": [],
+            "commission_analysis": {},
+            "fee_types": {}
+        }, indent=2)
+
+
+@tool 
+async def cleanup_duplicate_entries_async() -> str:
+    """
+    Clean up duplicate entries in the database.
+    
+    Returns:
+        A JSON string containing cleanup statistics.
+    """
+    try:
+        db = await get_db_manager()
+        cleanup_stats = await db.cleanup_duplicate_entries()
+        
+        import json
+        return json.dumps({
+            "success": True,
+            "cleanup_stats": cleanup_stats
+        }, indent=2)
+        
+    except Exception as e:
+        import json
+        return json.dumps({
+            "success": False,
+            "error": str(e),
+            "cleanup_stats": {
+                "duplicate_urls_removed": 0,
+                "duplicate_exhibitions_removed": 0,
+                "duplicate_entry_fees_removed": 0,
+                "duplicate_prizes_removed": 0
+            }
+        }, indent=2)
+
+
+@tool
+async def add_database_indexes_async() -> str:
+    """
+    Add database indexes for query optimization.
+    
+    Returns:
+        A JSON string containing indexing results.
+    """
+    try:
+        db = await get_db_manager()
+        index_results = await db.add_database_indexes()
+        
+        import json
+        return json.dumps({
+            "success": True,
+            "index_results": index_results
+        }, indent=2)
+        
+    except Exception as e:
+        import json
+        return json.dumps({
+            "success": False,
+            "error": str(e),
+            "index_results": {
+                "indexes_created": [],
+                "indexes_already_exist": [],
+                "errors": [str(e)]
+            }
+        }, indent=2)
+
+
+# ───────────────────────── SYNCHRONOUS WRAPPERS FOR NEW FUNCTIONS ─────────────────────────
+
+
+@tool
+def bulk_insert_exhibitions(exhibitions_data_json: str) -> str:
+    """
+    Bulk insert multiple exhibitions for better performance (synchronous wrapper).
+    
+    Args:
+        exhibitions_data_json: JSON string containing list of exhibition data dictionaries.
+    
+    Returns:
+        A JSON string containing the results of the bulk insertion with exhibition IDs.
+    """
+    import asyncio
+    import concurrent.futures
+    import threading
+    
+    def run_in_thread():
+        """Run the async function in a new thread with its own event loop."""
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        try:
+            return new_loop.run_until_complete(bulk_insert_exhibitions_async(exhibitions_data_json))
+        finally:
+            new_loop.close()
+    
+    try:
+        # Check if we're in an async context
+        loop = asyncio.get_running_loop()
+        # If we get here, we're in an async context, so run in a separate thread
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(run_in_thread)
+            return future.result()
+    except RuntimeError:
+        # No running loop, safe to use asyncio.run
+        return asyncio.run(bulk_insert_exhibitions_async(exhibitions_data_json))
+
+
+@tool
+def get_exhibitions_by_criteria(
+    date_range_json: str | None = None,
+    location: str | None = None,
+    fee_range_json: str | None = None
+) -> str:
+    """
+    Query exhibitions by multiple criteria with advanced filtering (synchronous wrapper).
+    
+    Args:
+        date_range_json: JSON string containing start and end dates: '["2023-01-01", "2024-12-31"]'
+        location: Location string to search for (case-insensitive)
+        fee_range_json: JSON string containing min and max fees: '[10.0, 100.0]'
+    
+    Returns:
+        A JSON string containing exhibitions matching the criteria.
+    """
+    import asyncio
+    import concurrent.futures
+    
+    def run_in_thread():
+        """Run the async function in a new thread with its own event loop."""
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        try:
+            return new_loop.run_until_complete(get_exhibitions_by_criteria_async(date_range_json, location, fee_range_json))
+        finally:
+            new_loop.close()
+    
+    try:
+        # Check if we're in an async context
+        loop = asyncio.get_running_loop()
+        # If we get here, we're in an async context, so run in a separate thread
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(run_in_thread)
+            return future.result()
+    except RuntimeError:
+        # No running loop, safe to use asyncio.run
+        return asyncio.run(get_exhibitions_by_criteria_async(date_range_json, location, fee_range_json))
+
+
+@tool
+def generate_fee_analysis_report() -> str:
+    """
+    Generate comprehensive fee analysis report with statistics (synchronous wrapper).
+    
+    Returns:
+        A JSON string containing detailed fee analysis with statistics and insights.
+    """
+    import asyncio
+    import concurrent.futures
+    
+    def run_in_thread():
+        """Run the async function in a new thread with its own event loop."""
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        try:
+            return new_loop.run_until_complete(generate_fee_analysis_report_async())
+        finally:
+            new_loop.close()
+    
+    try:
+        # Check if we're in an async context
+        loop = asyncio.get_running_loop()
+        # If we get here, we're in an async context, so run in a separate thread
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(run_in_thread)
+            return future.result()
+    except RuntimeError:
+        # No running loop, safe to use asyncio.run
+        return asyncio.run(generate_fee_analysis_report_async())
+
+
+@tool
+def cleanup_duplicate_entries() -> str:
+    """
+    Clean up duplicate entries in the database (synchronous wrapper).
+    
+    Returns:
+        A JSON string containing cleanup statistics.
+    """
+    import asyncio
+    import concurrent.futures
+    
+    def run_in_thread():
+        """Run the async function in a new thread with its own event loop."""
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        try:
+            return new_loop.run_until_complete(cleanup_duplicate_entries_async())
+        finally:
+            new_loop.close()
+    
+    try:
+        # Check if we're in an async context
+        loop = asyncio.get_running_loop()
+        # If we get here, we're in an async context, so run in a separate thread
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(run_in_thread)
+            return future.result()
+    except RuntimeError:
+        # No running loop, safe to use asyncio.run
+        return asyncio.run(cleanup_duplicate_entries_async())
+
+
+@tool
+def add_database_indexes() -> str:
+    """
+    Add database indexes for query optimization (synchronous wrapper).
+    
+    Returns:
+        A JSON string containing indexing results.
+    """
+    import asyncio
+    import concurrent.futures
+    
+    def run_in_thread():
+        """Run the async function in a new thread with its own event loop."""
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        try:
+            return new_loop.run_until_complete(add_database_indexes_async())
+        finally:
+            new_loop.close()
+    
+    try:
+        # Check if we're in an async context
+        loop = asyncio.get_running_loop()
+        # If we get here, we're in an async context, so run in a separate thread
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(run_in_thread)
+            return future.result()
+    except RuntimeError:
+        # No running loop, safe to use asyncio.run
+        return asyncio.run(add_database_indexes_async())
