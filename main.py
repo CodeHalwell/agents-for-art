@@ -58,7 +58,7 @@ class AgentConfig:
     else:
         SCRAPE_MODEL = "gpt-4o-mini"
         WEB_MODEL = "gpt-4o-mini"
-        MANAGER_MODEL = "gpt-4o"
+        MANAGER_MODEL = "gpt-4.1-mini"
         BROWSER_MODEL = "gpt-4o-mini"
         DATABASE_MODEL = "gpt-4o-mini"
     
@@ -264,7 +264,9 @@ def create_enhanced_task_prompt() -> str:
         **PRIMARY OBJECTIVE:**
         Your mission is to orchestrate a team of specialized agents to systematically discover, extract, and catalog UK art exhibitions, open calls, 
         and art fairs for the period of January 2023 to July 2026. The current date is June 11, 2025. The ultimate goal is to populate a comprehensive 
-        database for analyzing trends in artist entry fees, gallery commissions, prizes, and exhibition frequency.
+        database for analyzing trends in artist entry fees (fees paid to the gallery, host etc. from the artist), gallery commissions (recieved by the gallery, host etc. from sales), prizes, and exhibition frequency.
+        There may be a range of entry fees and prizes, so you must capture all available data. Some are free, some have a flat rate fee, and some have a tiered structure based on the number of works submitted.
+        You will work with a team of specialized agents to achieve this.
 
         **DATABASE SCHEMA OVERVIEW:**
         You have access to a database with four main tables: `urls` (for raw scraped links), `exhibitions` (for structured event data), 
@@ -282,15 +284,23 @@ def create_enhanced_task_prompt() -> str:
 
         **PHASE 1: INITIAL URL DISCOVERY**
         1.  **Delegate to `Web_Search_Specialist`:** Instruct this agent to find URLs.
-        2.  **Search Strategy:** Use a variety of search queries like `"UK art open call 2023"`, `"UK art exhibition 2024"`, `"UK art fair 2025"`, and `"UK art open call 2026"`. Prioritize well-known aggregator sites like `ArtRabbit`, `Artlyst`, and `The Art Newspaper`.
-        3.  **Collect:** Gather an initial batch of 100-200 unique URLs and store them in a list for processing.
+        2.  **Search Strategy:** Use a variety of search queries like `"UK art open call 2023"`, `"UK art exhibition 2024"`, `"UK art fair 2025"`, and `"UK art open call 2026"`.
+        Include searches to regional areas like 'North West', 'Midlands', 'South West', 'South East', 'East of England', 'London', 'North East', 'Yorkshire and the Humber', 'Wales', 'Scotland', and 'Northern Ireland'.
+        This could also include county searches like 'Cheshire', 'Lancashire', 'Cumbria', 'Greater Manchester', 'Merseyside', 'Derbyshire', 'Nottinghamshire', 'Leicestershire', 'Lincolnshire', 'Northamptonshire', 'Warwickshire', 'Staffordshire', 'Shropshire', 'Herefordshire', 'Worcestershire', and 'Gloucestershire'. 
+        Prioritize well-known aggregator sites like `ArtRabbit`, `Artlyst`, and `The Art Newspaper`.
+        Extract details of events with links to their official pages for saving in the database. These can then be scraped later.
+        3. **Filter Results:** Ensure the URLs are relevant to UK art exhibitions, open calls, and art fairs.
+        4. **Store URLs:** Use the `Database_Management_Specialist` to store these URLs in the database for later processing.
+        5. You may need to collect links from within links on aggregator sites, so you may need to use the `Web_Search_Specialist`or `Browser_Navigation_Agent` to navigate to these pages and extract links.
+        6.  **Collect:** Gather an initial batch of around 200 unique URLs and store them in a list for processing.
 
-        **PHASE 2: ITERATIVE URL PROCESSING (Loop through each URL)**
+        **PHASE 2: ITERATIVE URL PROCESSING (Loop through the URL's)**
 
-        For each URL in your list, you will coordinate the following sequence:
+        For the URL' in your list, you will coordinate the following sequence (extracting in batches if possible):
 
         **Step A: ATTEMPT DIRECT SCRAPING**
-        *   **Delegate to `Content_Extraction_Specialist`:** Use its `scrape_website` tool to perform a fast, direct scrape of the URL's HTML content.
+        *   **Delegate to `Content_Extraction_Specialist`:** Use its `scrape_website` scrape_website, `enhanced_close_popups`, `enhanced_search_item`,`preprocess_content_for_extraction`,`cache_similar_content_patterns`,`extract_dates_with_regex`,
+        `extract_prices_with_regex`,`reduce_content_to_relevant_sections` tools to perform a fast, direct scrape of the URL's HTML content.
         *   **Assess Result:** If the tool returns complete, structured data (title, dates, fees, etc.), proceed directly to Step C.
 
         **Step B: FALLBACK TO BROWSER AUTOMATION (If Step A fails or is incomplete)**
@@ -308,6 +318,20 @@ def create_enhanced_task_prompt() -> str:
             2.  `add_exhibition`: Store the structured exhibition details.
             3.  `add_entry_fee`: Store any associated entry fees.
             4.  `add_prize`: Store any associated prizes.
+
+            full list of tools here:
+                add_entry_fee,
+                add_exhibition,
+                add_url,
+                add_prize,
+                describe_schema,
+                get_unprocessed_urls,
+                get_exhibition_stats,
+                bulk_insert_exhibitions,
+                get_exhibitions_by_criteria,
+                generate_fee_analysis_report,
+                cleanup_duplicate_entries,
+                add_database_indexes
 
         ---
         **GUIDING PRINCIPLES & RULES OF ENGAGEMENT**
