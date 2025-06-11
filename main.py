@@ -227,7 +227,7 @@ def create_enhanced_task_prompt() -> str:
     **AGENT WORKFLOW (Iterative Sequence):**
 
     This task follows a structured, iterative workflow. After an initial search phase, you will process and save data for one URL at a time.
-    It may be helpful to review the database schema before starting the task. The schema is available in the `describe_schema_async` tool.
+    It may be helpful to review the database schema before starting the task. The schema is available in the `describe_schema` tool.
 
     1.  **SEARCH PHASE (Web_Search_Specialist):**
         * **Find Aggregators:** Identify UK art exhibition aggregator sites, prioritizing `ArtRabbit`, `Artlyst`, and `The Art Newspaper`.
