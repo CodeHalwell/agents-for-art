@@ -18,7 +18,11 @@ from tools.web_tools import (
     scrape_website, 
     enhanced_close_popups, 
     enhanced_search_item,
-
+    preprocess_content_for_extraction,
+    cache_similar_content_patterns,
+    extract_dates_with_regex,
+    extract_prices_with_regex,
+    reduce_content_to_relevant_sections
 )
 from tools.database_tools import (
     add_entry_fee,
@@ -148,7 +152,11 @@ class EnhancedAgentOrchestrator:
         # Content Scraper - Separated from navigation
         self.agents['scraper'] = ToolCallingAgent(
             model=self._create_model(self.config.SCRAPE_MODEL),
-            tools=[scrape_website],
+            tools=[scrape_website, preprocess_content_for_extraction,
+                    cache_similar_content_patterns,
+                    extract_dates_with_regex,
+                    extract_prices_with_regex,
+                    reduce_content_to_relevant_sections],
             max_steps=self.config.MAX_STEPS_WORKER,
             verbosity_level=self.config.VERBOSITY,
             planning_interval=self.config.PLANNING_INTERVAL,
@@ -251,112 +259,65 @@ def create_enhanced_task_prompt() -> str:
         helium_instructions = f.read()
     
     task = """
-    DATABASE SCHEMA:
-    
-    Table: urls
-    - id: INTEGER (Primary Key)
-    - raw_title: TEXT - Raw scraped title
-    - raw_date: VARCHAR(100) - Raw scraped date
-    - raw_location: VARCHAR(255) - Raw scraped location
-    - raw_description: TEXT - Raw scraped description
-    - url: VARCHAR(255) - The exhibition URL
-    - created_at, updated_at: TIMESTAMP
-    - updated_at: TIMESTAMP - Last updated timestamp
-    
-    Table: exhibitions  
-    - id: INTEGER (Primary Key)
-    - title: VARCHAR(255) - Exhibition title
-    - date_start: DATE - Start date
-    - date_end: DATE - End date
-    - venue: VARCHAR(255) - Venue name
-    - location: VARCHAR(255) - Location
-    - county: VARCHAR(100) - UK county
-    - description: TEXT - Exhibition description
-    - url_id: INTEGER (Foreign Key -> urls.id)
-    - created_at, updated_at: TIMESTAMP
-    - updated_at: TIMESTAMP - Last updated timestamp
-    
-    Table: entry_fees
-    - id: INTEGER (Primary Key)
-    - exhibition_id: INTEGER (Foreign Key -> exhibitions.id)
-    - fee_type: VARCHAR(100) - Type of fee
-    - number_entries: INTEGER - Number of entries (if applicable)
-    - fee_amount: DECIMAL(10,2) - Fee amount
-    - flat_rate: DECIMAL(10,2) - Flat rate fee (if applicable)
-    - commission_percent: DECIMAL(5,2) - Commission percentage (if applicable)
-    
-    Table: prizes
-    - id: INTEGER (Primary Key)  
-    - exhibition_id: INTEGER (Foreign Key -> exhibitions.id)
-    - prize_rank: VARCHAR(100) - Rank of the prize (e.g., 1st, 2nd)
-    - prize_type: VARCHAR(100) - Type of prize (e.g., cash, exhibition)
-    - prize_description: TEXT - Description of the prize
-    - created_at, updated_at: TIMESTAMP
-    - updated_at: TIMESTAMP - Last updated timestamp
+        **MISSION BRIEFING: ART EXHIBITION RESEARCH COORDINATOR**
 
+        **PRIMARY OBJECTIVE:**
+        Your mission is to orchestrate a team of specialized agents to systematically discover, extract, and catalog UK art exhibitions, open calls, 
+        and art fairs for the period of January 2023 to July 2026. The current date is June 11, 2025. The ultimate goal is to populate a comprehensive 
+        database for analyzing trends in artist entry fees, gallery commissions, prizes, and exhibition frequency.
 
-    **TASK: ART EXHIBITION RESEARCH COORDINATOR**
+        **DATABASE SCHEMA OVERVIEW:**
+        You have access to a database with four main tables: `urls` (for raw scraped links), `exhibitions` (for structured event data), 
+        `entry_fees`, and `prizes`. You can query the schema if needed using the `Database_Management_Specialist`'s `describe_schema` tool.
 
-    **OBJECTIVE:**
+        **SUCCESS CRITERIA:**
+        *   **Volume:** Collect and store data for at least 1000 unique exhibitions.
+        *   **Data Integrity:** Ensure all data is validated, especially dates (`YYYY-MM-DD`) and numeric values, before storage. Prevent duplicate entries.
+        *   **Completeness:** Capture detailed entry fee structures and prize information whenever available.
 
-    Systematically discover, extract, and catalog UK art exhibitions and open calls for the period of January 2023 to July 2026. 
-    The current date is June 11, 2025 and therefore looking for data on past, present and future events. The primary goal is to build a comprehensive database to analyze trends in entry fees, prizes, and exhibition frequency.
+        ---
+        **STRATEGIC WORKFLOW (Your Plan of Action)**
 
-    **SUCCESS CRITERIA:**
+        You will manage the following iterative workflow. After an initial broad search, you will coordinate agents to process each discovered URL individually.
 
-    * **Volume:** Collect and store 1000+ unique exhibition entries.
-    * **Completeness:** Include complete entry fee structures (tiered, flat) and capture prize information where available.
-    * **Data Integrity:** Maintain high standards of data quality and consistency.
+        **PHASE 1: INITIAL URL DISCOVERY**
+        1.  **Delegate to `Web_Search_Specialist`:** Instruct this agent to find URLs.
+        2.  **Search Strategy:** Use a variety of search queries like `"UK art open call 2023"`, `"UK art exhibition 2024"`, `"UK art fair 2025"`, and `"UK art open call 2026"`. Prioritize well-known aggregator sites like `ArtRabbit`, `Artlyst`, and `The Art Newspaper`.
+        3.  **Collect:** Gather an initial batch of 100-200 unique URLs and store them in a list for processing.
 
-    **AGENT WORKFLOW (Iterative Sequence):**
+        **PHASE 2: ITERATIVE URL PROCESSING (Loop through each URL)**
 
-    This task follows a structured, iterative workflow. After an initial search phase, you will process and save data for one URL at a time.
-    It may be helpful to review the database schema before starting the task. The schema is available in the `describe_schema` tool.
+        For each URL in your list, you will coordinate the following sequence:
 
-    1.  **SEARCH PHASE (Web_Search_Specialist):**
-        * **Find Aggregators:** Identify UK art exhibition aggregator sites, prioritizing `ArtRabbit`, `Artlyst`, and `The Art Newspaper`.
-        * **Search Topics:** Use queries like `"UK art open call 2023"`, `"UK art open call 2024"`, `"UK art open call 2025"`, 
-        `"UK art open call 2026"`, `"UK art exhibition 2024"`, and `"UK art fair 2025"`.
-        * **URL Collection:** Collect an initial batch of 100-200 relevant URLs before proceeding to the next phase.
+        **Step A: ATTEMPT DIRECT SCRAPING**
+        *   **Delegate to `Content_Extraction_Specialist`:** Use its `scrape_website` tool to perform a fast, direct scrape of the URL's HTML content.
+        *   **Assess Result:** If the tool returns complete, structured data (title, dates, fees, etc.), proceed directly to Step C.
 
-    2.  **ITERATIVE PROCESSING LOOP (For each URL):**
+        **Step B: FALLBACK TO BROWSER AUTOMATION (If Step A fails or is incomplete)**
+        *   **Condition:** Execute this step only if the direct scrape fails to extract key information, likely because the content is rendered by JavaScript.
+        *   **Delegate to `Browser_Navigation_Agent`:** Instruct it to navigate to the URL. It should use its tools (`enhanced_close_popups`, `enhanced_search_item`) to handle cookie banners and find relevant sections of the page.
+        *   **Delegate to `Content_Extraction_Specialist`:** Once the page is ready in the browser, delegate back to the scraper agent, but this time it will extract content from the browser's rendered HTML.
 
-        * **A. NAVIGATION PHASE (Browser_Navigation_Agent):**
-            * Navigate to the next URL in the queue.
-            * Handle any pop-ups or cookie banners to access page content.
-            * Search the page for key terms: `"entry fee"`, `"submission fee"`, `"prize"`.
+        **Step C: EXTRACT & STORE DATA**
+        *   **Delegate Extraction to `Content_Extraction_Specialist`:** Use its specialized tools (`extract_dates_with_regex`, `extract_prices_with_regex`, etc.) to parse the raw content into structured data:
+            - Exhibition: `title`, `dates`, `venue`, `location`.
+            - Fees: `fee_type`, `amount`, `currency`.
+            - Prizes: `prize_name`, `amount`, `currency`.
+        *   **Delegate Storage to `Database_Management_Specialist`:** After validating the extracted data, use the database agent's tools sequentially to ensure data integrity:
+            1.  `add_url`: Store the source URL and raw data.
+            2.  `add_exhibition`: Store the structured exhibition details.
+            3.  `add_entry_fee`: Store any associated entry fees.
+            4.  `add_prize`: Store any associated prizes.
 
-        * **B. EXTRACTION & STORAGE PHASE (Content_Extraction_Specialist & Database_Management_Specialist):**
-            * This phase must be completed for each URL before starting the next.
-            * **Extraction:**
-                * **Exhibition Details:** Extract `title`, `dates`, `venue`, `location`, `county`, `description`.
-                * **Fee Structures:** Extract `fee type` (tiered vs flat) and associated costs.
-                * **Prize Information:** Extract `prize rank`, `amount`, and `type`.
-            * **Storage (Immediate & Sequential):**
-                * **First:** Store the URL with its raw, unprocessed data using a function like `add_url_async()`.
-                * **Then:** Store the structured exhibition details using `add_exhibition_async()`.
-                * **Then:** Store the structured entry fee information using `add_entry_fee_async()`.
-                * **Finally:** Store the structured prize information using `add_prize_async()`.
+        ---
+        **GUIDING PRINCIPLES & RULES OF ENGAGEMENT**
 
-    **DATA QUALITY REQUIREMENTS:**
-
-    * **Date Format:** Validate all dates are in `YYYY-MM-DD` format.
-    * **Numeric Fees:** Ensure all fee and prize amounts are numeric (e.g., `25.00`).
-    * **Deduplication:** Check for and prevent duplicate URL or exhibition entries.
-    * **Field Verification:** Verify that all required database fields are present before storage.
-
-    **ERROR HANDLING:**
-
-    * **Retries:** Retry failed network requests up to 3 times.
-    * **Skip & Log:** If a URL remains problematic, log the error and skip to the next URL. The process must not stop.
-    * **Rate Limiting:** Implement a randomized delay of 2-8 seconds between requests.
-
-    **EFFICIENCY & COORDINATION STRATEGY:**
-
-    * **Batching:** Process URLs in logical batches of 10-20 to manage workflow.
-    * **Prioritization:** Prioritize high-value aggregator sites and exhibitions with clear fee structures.
-    * **SmolAgents Best Practices:** Reduce LLM calls by batching similar operations (like the initial search) and using deterministic validation (e.g., regex for dates) wherever possible. Delegate specialized tasks to the appropriate agents and integrate results efficiently.
-    """
+        *   **Delegate, Don't Do:** Your primary role is to coordinate. Delegate tasks to the specialist agent best suited for the job. You write the high-level Python script that calls the agents.
+        *   **Validate Before Storing:** Ensure data (especially dates and numbers) is in the correct format before calling the database agent.
+        *   **Error Handling:** If a URL consistently fails after 3 retries, log the problematic URL and move to the next. Do not let one bad URL halt the entire operation.
+        *   **Efficiency:** Implement a randomized delay (2-8 seconds) between requests to any single domain to avoid being blocked. Process URLs in logical batches.
+        *   **Deduplication:** Before processing a URL, check if it might already be in the database to avoid redundant work. Use the `Database_Management_Specialist` for this.
+        """
     
     return task + "\n\n" + helium_instructions
 
