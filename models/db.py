@@ -328,18 +328,18 @@ class AsyncDatabaseManager:
             
             return {
                 'summary': {
-                    'total_fees': fee_stats.total_fees or 0,
-                    'average_fee': float(fee_stats.avg_fee) if fee_stats.avg_fee else 0,
-                    'min_fee': float(fee_stats.min_fee) if fee_stats.min_fee else 0,
-                    'max_fee': float(fee_stats.max_fee) if fee_stats.max_fee else 0,
-                    'total_fee_value': float(fee_stats.total_fee_value) if fee_stats.total_fee_value else 0
+                    'total_fees': fee_stats.total_fees if fee_stats else 0,
+                    'average_fee': float(fee_stats.avg_fee) if fee_stats and fee_stats.avg_fee else 0,
+                    'min_fee': float(fee_stats.min_fee) if fee_stats and fee_stats.min_fee else 0,
+                    'max_fee': float(fee_stats.max_fee) if fee_stats and fee_stats.max_fee else 0,
+                    'total_fee_value': float(fee_stats.total_fee_value) if fee_stats and fee_stats.total_fee_value else 0
                 },
                 'tier_distribution': tier_distribution,
                 'commission_analysis': {
-                    'total_with_commission': commission_stats.total_with_commission or 0,
-                    'avg_commission': float(commission_stats.avg_commission) if commission_stats.avg_commission else 0,
-                    'min_commission': float(commission_stats.min_commission) if commission_stats.min_commission else 0,
-                    'max_commission': float(commission_stats.max_commission) if commission_stats.max_commission else 0
+                    'total_with_commission': commission_stats.total_with_commission if commission_stats else 0,
+                    'avg_commission': float(commission_stats.avg_commission) if commission_stats and commission_stats.avg_commission else 0,
+                    'min_commission': float(commission_stats.min_commission) if commission_stats and commission_stats.min_commission else 0,
+                    'max_commission': float(commission_stats.max_commission) if commission_stats and commission_stats.max_commission else 0
                 },
                 'fee_types': fee_types
             }
@@ -373,7 +373,7 @@ class AsyncDatabaseManager:
                 delete_urls_stmt = select(Url).where(Url.id.in_(duplicate_url_ids))
                 urls_to_delete = await session.execute(delete_urls_stmt)
                 for url in urls_to_delete.scalars():
-                    session.delete(url)
+                    await session.delete(url)
                 cleanup_stats['duplicate_urls_removed'] = len(duplicate_url_ids)
             
             # Remove duplicate exhibitions (same title, date_start, venue combination)
@@ -391,7 +391,7 @@ class AsyncDatabaseManager:
                 delete_exhibitions_stmt = select(Exhibition).where(Exhibition.id.in_(duplicate_exhibition_ids))
                 exhibitions_to_delete = await session.execute(delete_exhibitions_stmt)
                 for exhibition in exhibitions_to_delete.scalars():
-                    session.delete(exhibition)
+                    await session.delete(exhibition)
                 cleanup_stats['duplicate_exhibitions_removed'] = len(duplicate_exhibition_ids)
             
             # Remove duplicate entry fees (already handled by unique constraint, but clean up orphans)
@@ -404,7 +404,7 @@ class AsyncDatabaseManager:
                 delete_fees_stmt = select(EntryFee).where(EntryFee.id.in_(orphaned_fee_ids))
                 fees_to_delete = await session.execute(delete_fees_stmt)
                 for fee in fees_to_delete.scalars():
-                    session.delete(fee)
+                    await session.delete(fee)
                 cleanup_stats['duplicate_entry_fees_removed'] = len(orphaned_fee_ids)
             
             # Remove orphaned prizes
@@ -416,7 +416,7 @@ class AsyncDatabaseManager:
                 delete_prizes_stmt = select(Prize).where(Prize.id.in_(orphaned_prize_ids))
                 prizes_to_delete = await session.execute(delete_prizes_stmt)
                 for prize in prizes_to_delete.scalars():
-                    session.delete(prize)
+                    await session.delete(prize)
                 cleanup_stats['duplicate_prizes_removed'] = len(orphaned_prize_ids)
             
             await session.flush()
@@ -431,7 +431,7 @@ class AsyncDatabaseManager:
             Dictionary with indexing results.
         """
         async with self.engine.begin() as conn:
-            index_results = {
+            index_results: dict[str, list[str]] = {
                 'indexes_created': [],
                 'indexes_already_exist': [],
                 'errors': []
