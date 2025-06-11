@@ -24,7 +24,9 @@ from tools.database_tools import (
     add_exhibition_async,
     add_url_async,
     add_prize_async,
-    describe_schema_async
+    describe_schema,
+    get_unprocessed_urls_async,
+    get_exhibition_stats_async
 )
 from models.db import AsyncDatabaseManager
 import helium
@@ -38,12 +40,12 @@ class AgentConfig:
     # Model configurations
     SCRAPE_MODEL = "meta-llama/Llama-3.3-70B-Instruct"
     WEB_MODEL = "meta-llama/Llama-3.3-70B-Instruct"
-    MANAGER_MODEL = "Qwen/Qwen3-235B-A22B"
+    MANAGER_MODEL = "Qwen/Qwen3-32B"
     BROWSER_MODEL = "Qwen/Qwen2.5-VL-32B-Instruct"
     DATABASE_MODEL = "Qwen/Qwen2.5-Coder-32B-Instruct"
     
     # Agent parameters following best practices
-    MAX_STEPS_WORKER = 15  # Reduced from 20 for efficiency
+    MAX_STEPS_WORKER = 2  # Reduced from 20 for efficiency
     MAX_STEPS_MANAGER = 40  # Reduced from 50 for efficiency
     VERBOSITY = 1  # Reduced verbosity for cleaner logs
     
@@ -129,7 +131,7 @@ class EnhancedAgentOrchestrator:
         # Database Agent - Enhanced with validation
         self.agents['database'] = ToolCallingAgent(
             model=self._create_base_model(self.config.DATABASE_MODEL),
-            tools=[add_entry_fee_async, add_exhibition_async, add_url_async, add_prize_async, describe_schema_async],
+            tools=[add_entry_fee_async, add_exhibition_async, add_url_async, add_prize_async, describe_schema, get_unprocessed_urls_async, get_exhibition_stats_async],
             max_steps=self.config.MAX_STEPS_WORKER,
             verbosity_level=self.config.VERBOSITY,
             planning_interval=self.config.PLANNING_INTERVAL,
@@ -145,7 +147,7 @@ class EnhancedAgentOrchestrator:
         # Manager Agent - Following best practices for coordination
         self.agents['manager'] = CodeAgent(
             model=self._create_base_model(self.config.MANAGER_MODEL),
-            tools=[],  # Manager doesn't need direct tools
+            tools=[get_exhibition_stats_async, get_unprocessed_urls_async],  # Manager doesn't need direct tools
             managed_agents=list(self.agents.values()),
             max_steps=self.config.MAX_STEPS_MANAGER,
             verbosity_level=self.config.VERBOSITY,
@@ -154,9 +156,10 @@ class EnhancedAgentOrchestrator:
             description=(
                 "Coordinates the art exhibition research process. "
                 "Delegates tasks to specialized agents and ensures efficient workflow. "
+                "Can monitor database statistics and track unprocessed URLs. "
                 "Focuses on high-level strategy and result integration."
             ),
-            additional_authorized_imports=["asyncio", "time", "random", "json"],
+            additional_authorized_imports=["asyncio", "time", "random", "json", "re", "datetime", "logging", "helium"],
         )
     
     def get_agent(self, agent_type: str) -> Optional[object]:
@@ -212,7 +215,8 @@ def create_enhanced_task_prompt() -> str:
 
     **OBJECTIVE:**
 
-    Systematically discover, extract, and catalog UK art exhibitions and open calls for the period of January 2023 to July 2026. The current date is June 11, 2025. The primary goal is to build a comprehensive database to analyze trends in entry fees, prizes, and exhibition frequency.
+    Systematically discover, extract, and catalog UK art exhibitions and open calls for the period of January 2023 to July 2026. 
+    The current date is June 11, 2025 and therefore looking for data on past, present and future events. The primary goal is to build a comprehensive database to analyze trends in entry fees, prizes, and exhibition frequency.
 
     **SUCCESS CRITERIA:**
 
@@ -223,11 +227,13 @@ def create_enhanced_task_prompt() -> str:
     **AGENT WORKFLOW (Iterative Sequence):**
 
     This task follows a structured, iterative workflow. After an initial search phase, you will process and save data for one URL at a time.
+    It may be helpful to review the database schema before starting the task. The schema is available in the `describe_schema_async` tool.
 
     1.  **SEARCH PHASE (Web_Search_Specialist):**
         * **Find Aggregators:** Identify UK art exhibition aggregator sites, prioritizing `ArtRabbit`, `Artlyst`, and `The Art Newspaper`.
-        * **Search Topics:** Use queries like `"UK art open call 2023"`, `"UK art exhibition 2024"`, and `"UK art fair 2025"`.
-        * **URL Collection:** Collect an initial batch of 100 relevant URLs before proceeding to the next phase.
+        * **Search Topics:** Use queries like `"UK art open call 2023"`, `"UK art open call 2024"`, `"UK art open call 2025"`, 
+        `"UK art open call 2026"`, `"UK art exhibition 2024"`, and `"UK art fair 2025"`.
+        * **URL Collection:** Collect an initial batch of 100-200 relevant URLs before proceeding to the next phase.
 
     2.  **ITERATIVE PROCESSING LOOP (For each URL):**
 

@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import select, and_
-from models import Base, Url, Exhibition, EntryFee, Prize
+from models.models import Base, Url, Exhibition, EntryFee, Prize
 
 
 class AsyncDatabaseManager:

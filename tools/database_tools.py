@@ -290,7 +290,26 @@ async def get_unprocessed_urls_async(limit: int = 50) -> str:
     except Exception as e:
         return f"ERROR: Failed to get unprocessed URLs: {str(e)}"
 
-
+@tool
+def describe_schema(table_name: str) -> str:
+    """
+    Synchronous wrapper for describe_schema_async.
+    Describes the schema of a specific database table.
+    """
+    import asyncio
+    
+    try:
+        # Run the async function in a new event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(describe_schema_async(table_name))
+            return result
+        finally:
+            loop.close()
+    except Exception as e:
+        return f"Error describing schema for table '{table_name}': {str(e)}"
+    
 @tool
 async def get_exhibition_stats_async() -> str:
     """
@@ -473,18 +492,3 @@ def add_prize(
     return asyncio.run(add_prize_async(
         exhibition_id, prize_rank, prize_amount, prize_type, prize_description
     ))
-
-
-@tool
-def describe_schema(table_name: str) -> str:
-    """
-    Return the column names and types for the given table (synchronous wrapper).
-    
-    Args:
-        table_name: Name of the table ("exhibitions", "entry_fees", "prizes", "urls").
-        
-    Returns:
-        A human-readable list of columns and their SQL types.
-    """
-    import asyncio
-    return asyncio.run(describe_schema_async(table_name))
