@@ -261,13 +261,12 @@ async def describe_schema_async(table_name: str) -> str:
 async def get_unprocessed_urls_async(limit: int = 50) -> str:
     """
     Get URLs that haven't been processed into exhibitions yet.
-    According to best practices: Use async queries with proper limits.
     
     Args:
-        limit: Maximum number of URLs to return
+        limit (int): Maximum number of URLs to return.
         
     Returns:
-        JSON string with URL data
+        A JSON string containing URL data for unprocessed URLs.
     """
     try:
         db = await get_db_manager()
@@ -293,37 +292,41 @@ async def get_unprocessed_urls_async(limit: int = 50) -> str:
 @tool
 def describe_schema(table_name: str) -> str:
     """
-    Return the column names and types for the given table.
-    According to best practices.
+    Describes table schema using a direct, synchronous SQLAlchemy inspector.
 
     Args:
-        table_name: Name of the table ("exhibitions", "entry_fees", "prizes", "urls").
+        table_name (str): Name of the table ("exhibitions", "entry_fees", "prizes", "urls").
 
     Returns:
-        A human-readable list of columns and their SQL types.
+        A string containing the table schema with column names and types, or an error message if the operation fails.
     """
-    import asyncio
-    
     try:
-        # Run the async function in a new event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(describe_schema_async(table_name))
-            return result
-        finally:
-            loop.close()
+        from sqlalchemy import create_engine, inspect
+        engine = create_engine("sqlite:///art_events.db")
+        inspector = inspect(engine)
+        
+        table_names = inspector.get_table_names()
+        
+        if table_name not in table_names:
+            return f"ERROR: no table named '{table_name}'. Available: {table_names}"
+        
+        cols = inspector.get_columns(table_name)
+        lines = [f"{c['name']}: {c['type']}" for c in cols]
+        return "\n".join(lines)
+        
     except Exception as e:
-        return f"Error describing schema for table '{table_name}': {str(e)}"
+        return f"ERROR: Failed to describe schema: {str(e)}"
     
 @tool
 async def get_exhibition_stats_async() -> str:
     """
     Get statistics about the current database state.
-    According to best practices: Provide useful metrics for monitoring.
     
+    Args:
+        None.
+        
     Returns:
-        Statistics about exhibitions, fees, and prizes
+        A JSON string containing statistics about exhibitions, fees, and prizes.
     """
     try:
         db = await get_db_manager()
@@ -392,14 +395,14 @@ def add_url(
     Insert a row in the **urls** table (synchronous wrapper).
     
     Args:
-        url: The absolute URL of the page that advertised the open call.
-        raw_title: Optional raw title text scraped from the page.
-        raw_date: Optional raw date string scraped from the page.
-        raw_location: Optional raw location string scraped from the page.
-        raw_description: Optional teaser / summary text scraped from the page.
+        url (str): The absolute URL of the page that advertised the open call.
+        raw_title (str | None): Optional raw title text scraped from the page.
+        raw_date (str | None): Optional raw date string scraped from the page.
+        raw_location (str | None): Optional raw location string scraped from the page.
+        raw_description (str | None): Optional teaser / summary text scraped from the page.
         
     Returns:
-        The primary‑key ID of the newly‑inserted or existing :class:`models.Url` row.
+        An integer representing the primary‑key ID of the newly‑inserted or existing Url row.
     """
     import asyncio
     return asyncio.run(add_url_async(url, raw_title, raw_date, raw_location, raw_description))
@@ -421,17 +424,17 @@ def add_exhibition(
     Insert a row in the **exhibitions** table (synchronous wrapper).
     
     Args:
-        title: Official exhibition title.
-        date_start: First public day of the exhibition (YYYY‑MM‑DD).
-        date_end: Last public day of the exhibition (YYYY‑MM‑DD).
-        venue: Gallery / art‑fair name.
-        location: Town or city where the venue is located.
-        county: Optional county / region for more granular search.
-        url_id: Foreign‑key linking back to the **urls** table.
-        description: Optional long‑form description scraped from the page.
+        title (str): Official exhibition title.
+        date_start (str): First public day of the exhibition (YYYY‑MM‑DD).
+        date_end (str): Last public day of the exhibition (YYYY‑MM‑DD).
+        venue (str): Gallery / art‑fair name.
+        location (str): Town or city where the venue is located.
+        county (str | None): Optional county / region for more granular search.
+        url_id (int): Foreign‑key linking back to the **urls** table.
+        description (str | None): Optional long‑form description scraped from the page.
         
     Returns:
-        The ID of the new :class:`models.Exhibition` row.
+        An integer representing the ID of the new Exhibition row.
     """
     import asyncio
     return asyncio.run(add_exhibition_async(
@@ -458,14 +461,14 @@ def add_entry_fee(
     Insert a row in the **entry_fees** table (synchronous wrapper).
     
     Args:
-        exhibition_id: Foreign‑key to the parent exhibition.
-        number_entries: The *exact* number of works this tier applies to.
-        fee_amount: Monetary fee *per tier* (e.g. "25.00").
-        flat_rate: Optional flat fee that overrides per‑piece tiers.
-        commission_percent: Optional commission percentage charged on sales.
+        exhibition_id (int): Foreign‑key to the parent exhibition.
+        number_entries (int): The exact number of works this tier applies to.
+        fee_amount (str): Monetary fee per tier (e.g. "25.00").
+        flat_rate (str | None): Optional flat fee that overrides per‑piece tiers.
+        commission_percent (str | None): Optional commission percentage charged on sales.
         
     Returns:
-        The ID of the new :class:`models.EntryFee` row.
+        An integer representing the ID of the new EntryFee row.
     """
     import asyncio
     return asyncio.run(add_entry_fee_async(
@@ -485,16 +488,46 @@ def add_prize(
     Insert a row in the **prizes** table (synchronous wrapper).
     
     Args:
-        exhibition_id: Foreign‑key to the parent exhibition.
-        prize_rank: Ordinal rank (e.g. 1 for first prize). None if unranked.
-        prize_amount: Cash value ("5000.00") or None for non‑cash awards.
-        prize_type: Short label for the prize type (e.g. "cash", "materials").
-        prize_description: Longer human‑readable description.
+        exhibition_id (int): Foreign‑key to the parent exhibition.
+        prize_rank (int | None): Ordinal rank (e.g. 1 for first prize). None if unranked.
+        prize_amount (str | None): Cash value ("5000.00") or None for non‑cash awards.
+        prize_type (str | None): Short label for the prize type (e.g. "cash", "materials").
+        prize_description (str | None): Longer human‑readable description.
         
     Returns:
-        The ID of the new :class:`models.Prize` row.
+        An integer representing the ID of the new Prize row.
     """
     import asyncio
     return asyncio.run(add_prize_async(
         exhibition_id, prize_rank, prize_amount, prize_type, prize_description
     ))
+
+
+@tool
+def get_unprocessed_urls(limit: int = 50) -> str:
+    """
+    Get URLs that haven't been processed into exhibitions yet (synchronous wrapper).
+    
+    Args:
+        limit (int): Maximum number of URLs to return.
+        
+    Returns:
+        A JSON string containing URL data for unprocessed URLs.
+    """
+    import asyncio
+    return asyncio.run(get_unprocessed_urls_async(limit))
+
+
+@tool
+def get_exhibition_stats() -> str:
+    """
+    Get statistics about the current database state (synchronous wrapper).
+    
+    Args:
+        None.
+        
+    Returns:
+        A JSON string containing statistics about exhibitions, fees, and prizes.
+    """
+    import asyncio
+    return asyncio.run(get_exhibition_stats_async())

@@ -15,19 +15,19 @@ from smolagents import (
 from dotenv import load_dotenv
 
 from tools.web_tools import (
-    scrape_website_safely, 
+    scrape_website, 
     enhanced_close_popups, 
     enhanced_search_item,
 
 )
 from tools.database_tools import (
-    add_entry_fee_async,
-    add_exhibition_async,
-    add_url_async,
-    add_prize_async,
+    add_entry_fee,
+    add_exhibition,
+    add_url,
+    add_prize,
     describe_schema,
-    get_unprocessed_urls_async,
-    get_exhibition_stats_async
+    get_unprocessed_urls,
+    get_exhibition_stats
 )
 from models.db import AsyncDatabaseManager
 import helium
@@ -143,7 +143,7 @@ class EnhancedAgentOrchestrator:
         # Content Scraper - Separated from navigation
         self.agents['scraper'] = ToolCallingAgent(
             model=self._create_model(self.config.BROWSER_MODEL),
-            tools=[scrape_website_safely],
+            tools=[scrape_website],
             max_steps=self.config.MAX_STEPS_WORKER,
             verbosity_level=self.config.VERBOSITY,
             planning_interval=self.config.PLANNING_INTERVAL,
@@ -159,7 +159,7 @@ class EnhancedAgentOrchestrator:
         # Database Agent - Enhanced with validation
         self.agents['database'] = ToolCallingAgent(
             model=self._create_model(self.config.BROWSER_MODEL),
-            tools=[add_entry_fee_async, add_exhibition_async, add_url_async, add_prize_async, describe_schema, get_unprocessed_urls_async, get_exhibition_stats_async],
+            tools=[add_entry_fee, add_exhibition, add_url, add_prize, describe_schema, get_unprocessed_urls, get_exhibition_stats],
             max_steps=self.config.MAX_STEPS_WORKER,
             verbosity_level=self.config.VERBOSITY,
             planning_interval=self.config.PLANNING_INTERVAL,
@@ -175,7 +175,7 @@ class EnhancedAgentOrchestrator:
         # Manager Agent - Following best practices for coordination
         self.agents['manager'] = CodeAgent(
             model=self._create_model(self.config.BROWSER_MODEL),
-            tools=[get_exhibition_stats_async, get_unprocessed_urls_async],  # Manager doesn't need direct tools
+            tools=[get_exhibition_stats, get_unprocessed_urls],  # Manager doesn't need direct tools
             managed_agents=list(self.agents.values()),
             max_steps=self.config.MAX_STEPS_MANAGER,
             verbosity_level=self.config.VERBOSITY,
