@@ -52,11 +52,11 @@ class AgentConfig:
         BROWSER_MODEL = "Qwen/Qwen2.5-VL-32B-Instruct"
         DATABASE_MODEL = "Qwen/Qwen2.5-Coder-32B-Instruct"
     else:
-        SCRAPE_MODEL = "gpt-4o"
-        WEB_MODEL = "gpt-4o"
-        MANAGER_MODEL = "gpt-4.1"
-        BROWSER_MODEL = "gpt-4o"
-        DATABASE_MODEL = "gpt-4o"
+        SCRAPE_MODEL = "gpt-4o-mini"
+        WEB_MODEL = "gpt-4o-mini"
+        MANAGER_MODEL = "gpt-4o"
+        BROWSER_MODEL = "gpt-4o-mini"
+        DATABASE_MODEL = "gpt-4o-mini"
     
     # Agent parameters following best practices
     MAX_STEPS_WORKER = 15  # Reduced from 20 for efficiency
@@ -131,7 +131,7 @@ class EnhancedAgentOrchestrator:
         
         # Web Search Agent - Enhanced with better descriptions
         self.agents['search'] = ToolCallingAgent(
-            model=self._create_model(self.config.BROWSER_MODEL),
+            model=self._create_model(self.config.WEB_MODEL),
             tools=[DuckDuckGoSearchTool()],
             max_steps=self.config.MAX_STEPS_WORKER,
             verbosity_level=self.config.VERBOSITY,
@@ -147,7 +147,7 @@ class EnhancedAgentOrchestrator:
         
         # Content Scraper - Separated from navigation
         self.agents['scraper'] = ToolCallingAgent(
-            model=self._create_model(self.config.BROWSER_MODEL),
+            model=self._create_model(self.config.SCRAPE_MODEL),
             tools=[scrape_website],
             max_steps=self.config.MAX_STEPS_WORKER,
             verbosity_level=self.config.VERBOSITY,
@@ -163,7 +163,7 @@ class EnhancedAgentOrchestrator:
         
         # Database Agent - Enhanced with validation
         self.agents['database'] = ToolCallingAgent(
-            model=self._create_model(self.config.BROWSER_MODEL),
+            model=self._create_model(self.config.DATABASE_MODEL),
             tools=[
                 add_entry_fee, add_exhibition, add_url, add_prize, describe_schema, 
                 get_unprocessed_urls, get_exhibition_stats, bulk_insert_exhibitions,
@@ -186,7 +186,7 @@ class EnhancedAgentOrchestrator:
         
         # Manager Agent - Following best practices for coordination
         self.agents['manager'] = CodeAgent(
-            model=self._create_model(self.config.BROWSER_MODEL),
+            model=self._create_model(self.config.MANAGER_MODEL),
             tools=[get_exhibition_stats, get_unprocessed_urls],  # Manager doesn't need direct tools
             managed_agents=list(self.agents.values()),
             max_steps=self.config.MAX_STEPS_MANAGER,
