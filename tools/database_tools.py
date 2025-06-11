@@ -293,8 +293,14 @@ async def get_unprocessed_urls_async(limit: int = 50) -> str:
 @tool
 def describe_schema(table_name: str) -> str:
     """
-    Synchronous wrapper for describe_schema_async.
-    Describes the schema of a specific database table.
+    Return the column names and types for the given table.
+    According to best practices.
+
+    Args:
+        table_name: Name of the table ("exhibitions", "entry_fees", "prizes", "urls").
+
+    Returns:
+        A human-readable list of columns and their SQL types.
     """
     import asyncio
     

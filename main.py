@@ -9,7 +9,8 @@ from smolagents import (
     CodeAgent,
     ToolCallingAgent,
     InferenceClientModel,
-    DuckDuckGoSearchTool
+    DuckDuckGoSearchTool,
+    OpenAIServerModel
 )
 from dotenv import load_dotenv
 
@@ -36,16 +37,24 @@ load_dotenv()
 
 class AgentConfig:
     """Configuration for agents following SmolAgents best practices."""
+
+    PROVIDER = "openai"  # 'hf-inference' or 'openai'
     
-    # Model configurations
-    SCRAPE_MODEL = "meta-llama/Llama-3.3-70B-Instruct"
-    WEB_MODEL = "meta-llama/Llama-3.3-70B-Instruct"
-    MANAGER_MODEL = "Qwen/Qwen3-32B"
-    BROWSER_MODEL = "Qwen/Qwen2.5-VL-32B-Instruct"
-    DATABASE_MODEL = "Qwen/Qwen2.5-Coder-32B-Instruct"
+    if PROVIDER == "hf-inference":
+        SCRAPE_MODEL = "meta-llama/Llama-3.3-70B-Instruct"
+        WEB_MODEL = "meta-llama/Llama-3.3-70B-Instruct"
+        MANAGER_MODEL = "Qwen/Qwen3-32B"
+        BROWSER_MODEL = "Qwen/Qwen2.5-VL-32B-Instruct"
+        DATABASE_MODEL = "Qwen/Qwen2.5-Coder-32B-Instruct"
+    else:
+        SCRAPE_MODEL = "gpt-4o"
+        WEB_MODEL = "gpt-4o"
+        MANAGER_MODEL = "gpt-4.1"
+        BROWSER_MODEL = "gpt-4o"
+        DATABASE_MODEL = "gpt-4o"
     
     # Agent parameters following best practices
-    MAX_STEPS_WORKER = 2  # Reduced from 20 for efficiency
+    MAX_STEPS_WORKER = 15  # Reduced from 20 for efficiency
     MAX_STEPS_MANAGER = 40  # Reduced from 50 for efficiency
     VERBOSITY = 1  # Reduced verbosity for cleaner logs
     
@@ -73,6 +82,25 @@ class EnhancedAgentOrchestrator:
             token=os.environ['HF_TOKEN']
         )
     
+    def _create_server_model(self, model_id: str) -> OpenAIServerModel:
+        """Create server model with consistent configuration."""
+        return OpenAIServerModel(
+            model_id=model_id,
+            api_key=os.environ['OPENAI_API_KEY']
+        )
+    
+    def _create_model(self, model_id: str) -> Optional[object]:
+        """
+        Create model based on provider.
+        According to SmolAgents best practices: Use consistent model creation.
+        """
+        if self.config.PROVIDER == "hf-inference":
+            return self._create_base_model(model_id)
+        elif self.config.PROVIDER == "openai":
+            return self._create_server_model(model_id)
+        else:
+            raise ValueError(f"Unsupported provider: {self.config.PROVIDER}")
+    
     def _setup_agents(self):
         """
         Setup agents following SmolAgents best practices.
@@ -83,7 +111,7 @@ class EnhancedAgentOrchestrator:
         # According to best practices: Minimal, focused responsibilities
         self.agents['browser'] = CodeAgent(
             tools=[enhanced_close_popups, enhanced_search_item],
-            model=self._create_base_model(self.config.BROWSER_MODEL),
+            model=self._create_model(self.config.BROWSER_MODEL),
             additional_authorized_imports=["helium", "time"],
             max_steps=self.config.MAX_STEPS_WORKER,
             verbosity_level=self.config.VERBOSITY,
@@ -98,7 +126,7 @@ class EnhancedAgentOrchestrator:
         
         # Web Search Agent - Enhanced with better descriptions
         self.agents['search'] = ToolCallingAgent(
-            model=self._create_base_model(self.config.WEB_MODEL),
+            model=self._create_model(self.config.BROWSER_MODEL),
             tools=[DuckDuckGoSearchTool()],
             max_steps=self.config.MAX_STEPS_WORKER,
             verbosity_level=self.config.VERBOSITY,
@@ -114,7 +142,7 @@ class EnhancedAgentOrchestrator:
         
         # Content Scraper - Separated from navigation
         self.agents['scraper'] = ToolCallingAgent(
-            model=self._create_base_model(self.config.SCRAPE_MODEL),
+            model=self._create_model(self.config.BROWSER_MODEL),
             tools=[scrape_website_safely],
             max_steps=self.config.MAX_STEPS_WORKER,
             verbosity_level=self.config.VERBOSITY,
@@ -130,7 +158,7 @@ class EnhancedAgentOrchestrator:
         
         # Database Agent - Enhanced with validation
         self.agents['database'] = ToolCallingAgent(
-            model=self._create_base_model(self.config.DATABASE_MODEL),
+            model=self._create_model(self.config.BROWSER_MODEL),
             tools=[add_entry_fee_async, add_exhibition_async, add_url_async, add_prize_async, describe_schema, get_unprocessed_urls_async, get_exhibition_stats_async],
             max_steps=self.config.MAX_STEPS_WORKER,
             verbosity_level=self.config.VERBOSITY,
@@ -146,7 +174,7 @@ class EnhancedAgentOrchestrator:
         
         # Manager Agent - Following best practices for coordination
         self.agents['manager'] = CodeAgent(
-            model=self._create_base_model(self.config.MANAGER_MODEL),
+            model=self._create_model(self.config.BROWSER_MODEL),
             tools=[get_exhibition_stats_async, get_unprocessed_urls_async],  # Manager doesn't need direct tools
             managed_agents=list(self.agents.values()),
             max_steps=self.config.MAX_STEPS_MANAGER,
@@ -211,6 +239,45 @@ def create_enhanced_task_prompt() -> str:
         helium_instructions = f.read()
     
     task = """
+    DATABASE SCHEMA:
+    
+    Table: urls
+    - id: INTEGER (Primary Key)
+    - url: VARCHAR(255) - The exhibition URL
+    - raw_title: TEXT - Raw scraped title
+    - raw_date: VARCHAR(100) - Raw scraped date
+    - raw_location: VARCHAR(255) - Raw scraped location
+    - raw_description: TEXT - Raw scraped description
+    - created_at, updated_at: TIMESTAMP
+    
+    Table: exhibitions  
+    - id: INTEGER (Primary Key)
+    - title: VARCHAR(255) - Exhibition title
+    - date_start: DATE - Start date
+    - date_end: DATE - End date
+    - venue: VARCHAR(255) - Venue name
+    - location: VARCHAR(255) - Location
+    - county: VARCHAR(100) - UK county
+    - description: TEXT - Exhibition description
+    - url_id: INTEGER (Foreign Key -> urls.id)
+    - created_at, updated_at: TIMESTAMP
+    
+    Table: entry_fees
+    - id: INTEGER (Primary Key)
+    - exhibition_id: INTEGER (Foreign Key -> exhibitions.id)
+    - fee_type: VARCHAR(100) - Type of fee
+    - amount: DECIMAL(10,2) - Fee amount
+    - currency: VARCHAR(10) - Currency code
+    - description: TEXT - Fee description
+    
+    Table: prizes
+    - id: INTEGER (Primary Key)  
+    - exhibition_id: INTEGER (Foreign Key -> exhibitions.id)
+    - prize_name: VARCHAR(255) - Prize name
+    - amount: DECIMAL(10,2) - Prize amount
+    - currency: VARCHAR(10) - Currency code
+    - description: TEXT - Prize description
+
     **TASK: ART EXHIBITION RESEARCH COORDINATOR**
 
     **OBJECTIVE:**
@@ -249,10 +316,10 @@ def create_enhanced_task_prompt() -> str:
                 * **Fee Structures:** Extract `fee type` (tiered vs flat) and associated costs.
                 * **Prize Information:** Extract `prize rank`, `amount`, and `type`.
             * **Storage (Immediate & Sequential):**
-                * **First:** Store the URL with its raw, unprocessed data using a function like `add_url()`.
-                * **Then:** Store the structured exhibition details using `add_exhibition()`.
-                * **Then:** Store the structured entry fee information using `add_entry_fee()`.
-                * **Finally:** Store the structured prize information using `add_prize()`.
+                * **First:** Store the URL with its raw, unprocessed data using a function like `add_url_async()`.
+                * **Then:** Store the structured exhibition details using `add_exhibition_async()`.
+                * **Then:** Store the structured entry fee information using `add_entry_fee_async()`.
+                * **Finally:** Store the structured prize information using `add_prize_async()`.
 
     **DATA QUALITY REQUIREMENTS:**
 
