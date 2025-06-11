@@ -59,7 +59,7 @@ class AgentConfig:
         DATABASE_MODEL = "gpt-4o-mini"
     
     # Agent parameters following best practices
-    MAX_STEPS_WORKER = 15  # Reduced from 20 for efficiency
+    MAX_STEPS_WORKER = 10  # Reduced from 20 for efficiency
     MAX_STEPS_MANAGER = 40  # Reduced from 50 for efficiency
     VERBOSITY = 1  # Reduced verbosity for cleaner logs
     
@@ -255,12 +255,13 @@ def create_enhanced_task_prompt() -> str:
     
     Table: urls
     - id: INTEGER (Primary Key)
-    - url: VARCHAR(255) - The exhibition URL
     - raw_title: TEXT - Raw scraped title
     - raw_date: VARCHAR(100) - Raw scraped date
     - raw_location: VARCHAR(255) - Raw scraped location
     - raw_description: TEXT - Raw scraped description
+    - url: VARCHAR(255) - The exhibition URL
     - created_at, updated_at: TIMESTAMP
+    - updated_at: TIMESTAMP - Last updated timestamp
     
     Table: exhibitions  
     - id: INTEGER (Primary Key)
@@ -273,22 +274,26 @@ def create_enhanced_task_prompt() -> str:
     - description: TEXT - Exhibition description
     - url_id: INTEGER (Foreign Key -> urls.id)
     - created_at, updated_at: TIMESTAMP
+    - updated_at: TIMESTAMP - Last updated timestamp
     
     Table: entry_fees
     - id: INTEGER (Primary Key)
     - exhibition_id: INTEGER (Foreign Key -> exhibitions.id)
     - fee_type: VARCHAR(100) - Type of fee
-    - amount: DECIMAL(10,2) - Fee amount
-    - currency: VARCHAR(10) - Currency code
-    - description: TEXT - Fee description
+    - number_entries: INTEGER - Number of entries (if applicable)
+    - fee_amount: DECIMAL(10,2) - Fee amount
+    - flat_rate: DECIMAL(10,2) - Flat rate fee (if applicable)
+    - commission_percent: DECIMAL(5,2) - Commission percentage (if applicable)
     
     Table: prizes
     - id: INTEGER (Primary Key)  
     - exhibition_id: INTEGER (Foreign Key -> exhibitions.id)
-    - prize_name: VARCHAR(255) - Prize name
-    - amount: DECIMAL(10,2) - Prize amount
-    - currency: VARCHAR(10) - Currency code
-    - description: TEXT - Prize description
+    - prize_rank: VARCHAR(100) - Rank of the prize (e.g., 1st, 2nd)
+    - prize_type: VARCHAR(100) - Type of prize (e.g., cash, exhibition)
+    - prize_description: TEXT - Description of the prize
+    - created_at, updated_at: TIMESTAMP
+    - updated_at: TIMESTAMP - Last updated timestamp
+
 
     **TASK: ART EXHIBITION RESEARCH COORDINATOR**
 
