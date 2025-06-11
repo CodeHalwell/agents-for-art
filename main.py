@@ -47,8 +47,8 @@ class AgentConfig:
         BROWSER_MODEL = "Qwen/Qwen2.5-VL-32B-Instruct"
         DATABASE_MODEL = "Qwen/Qwen2.5-Coder-32B-Instruct"
     else:
-        SCRAPE_MODEL = "gpt-4o"
-        WEB_MODEL = "gpt-4o"
+        SCRAPE_MODEL = "gpt-4o-mini"
+        WEB_MODEL = "gpt-4o-mini"
         MANAGER_MODEL = "gpt-4.1"
         BROWSER_MODEL = "gpt-4o"
         DATABASE_MODEL = "gpt-4o"
@@ -126,7 +126,7 @@ class EnhancedAgentOrchestrator:
         
         # Web Search Agent - Enhanced with better descriptions
         self.agents['search'] = ToolCallingAgent(
-            model=self._create_model(self.config.BROWSER_MODEL),
+            model=self._create_model(self.config.WEB_MODEL),
             tools=[DuckDuckGoSearchTool()],
             max_steps=self.config.MAX_STEPS_WORKER,
             verbosity_level=self.config.VERBOSITY,
@@ -142,7 +142,7 @@ class EnhancedAgentOrchestrator:
         
         # Content Scraper - Separated from navigation
         self.agents['scraper'] = ToolCallingAgent(
-            model=self._create_model(self.config.BROWSER_MODEL),
+            model=self._create_model(self.config.SCRAPE_MODEL),
             tools=[scrape_website],
             max_steps=self.config.MAX_STEPS_WORKER,
             verbosity_level=self.config.VERBOSITY,
@@ -158,7 +158,7 @@ class EnhancedAgentOrchestrator:
         
         # Database Agent - Enhanced with validation
         self.agents['database'] = ToolCallingAgent(
-            model=self._create_model(self.config.BROWSER_MODEL),
+            model=self._create_model(self.config.DATABASE_MODEL),
             tools=[add_entry_fee, add_exhibition, add_url, add_prize, describe_schema, get_unprocessed_urls, get_exhibition_stats],
             max_steps=self.config.MAX_STEPS_WORKER,
             verbosity_level=self.config.VERBOSITY,
@@ -174,7 +174,7 @@ class EnhancedAgentOrchestrator:
         
         # Manager Agent - Following best practices for coordination
         self.agents['manager'] = CodeAgent(
-            model=self._create_model(self.config.BROWSER_MODEL),
+            model=self._create_model(self.config.MANAGER_MODEL),
             tools=[get_exhibition_stats, get_unprocessed_urls],  # Manager doesn't need direct tools
             managed_agents=list(self.agents.values()),
             max_steps=self.config.MAX_STEPS_MANAGER,
@@ -243,12 +243,13 @@ def create_enhanced_task_prompt() -> str:
     
     Table: urls
     - id: INTEGER (Primary Key)
-    - url: VARCHAR(255) - The exhibition URL
     - raw_title: TEXT - Raw scraped title
     - raw_date: VARCHAR(100) - Raw scraped date
     - raw_location: VARCHAR(255) - Raw scraped location
     - raw_description: TEXT - Raw scraped description
+    - url: VARCHAR(255) - The exhibition URL
     - created_at, updated_at: TIMESTAMP
+    - updated_at: TIMESTAMP - Last updated timestamp
     
     Table: exhibitions  
     - id: INTEGER (Primary Key)
@@ -261,22 +262,26 @@ def create_enhanced_task_prompt() -> str:
     - description: TEXT - Exhibition description
     - url_id: INTEGER (Foreign Key -> urls.id)
     - created_at, updated_at: TIMESTAMP
+    - updated_at: TIMESTAMP - Last updated timestamp
     
     Table: entry_fees
     - id: INTEGER (Primary Key)
     - exhibition_id: INTEGER (Foreign Key -> exhibitions.id)
     - fee_type: VARCHAR(100) - Type of fee
-    - amount: DECIMAL(10,2) - Fee amount
-    - currency: VARCHAR(10) - Currency code
-    - description: TEXT - Fee description
+    - number_entries: INTEGER - Number of entries (if applicable)
+    - fee_amount: DECIMAL(10,2) - Fee amount
+    - flat_rate: DECIMAL(10,2) - Flat rate fee (if applicable)
+    - commission_percent: DECIMAL(5,2) - Commission percentage (if applicable)
     
     Table: prizes
     - id: INTEGER (Primary Key)  
     - exhibition_id: INTEGER (Foreign Key -> exhibitions.id)
-    - prize_name: VARCHAR(255) - Prize name
-    - amount: DECIMAL(10,2) - Prize amount
-    - currency: VARCHAR(10) - Currency code
-    - description: TEXT - Prize description
+    - prize_rank: VARCHAR(100) - Rank of the prize (e.g., 1st, 2nd)
+    - prize_type: VARCHAR(100) - Type of prize (e.g., cash, exhibition)
+    - prize_description: TEXT - Description of the prize
+    - created_at, updated_at: TIMESTAMP
+    - updated_at: TIMESTAMP - Last updated timestamp
+
 
     **TASK: ART EXHIBITION RESEARCH COORDINATOR**
 
