@@ -591,8 +591,25 @@ def reduce_content_to_relevant_sections(content: str, keywords: List[str]) -> st
     if isinstance(keywords, str):
         keywords = [keywords]
     
-    # Split content into paragraphs/sections
-    sections = re.split(r'\n\s*\n', content)
+    # Split content into sentences and paragraphs for better filtering
+    # Try different splitting methods
+    sections = []
+    
+    # First try splitting by double newlines (paragraphs)
+    if '\n\n' in content:
+        sections = re.split(r'\n\s*\n', content)
+    # If no paragraphs, split by sentences
+    elif '. ' in content:
+        sections = re.split(r'\. ', content)
+        # Add periods back except for the last one
+        sections = [s + '.' if i < len(sections) - 1 else s for i, s in enumerate(sections)]
+    # If no sentences, split by single newlines
+    elif '\n' in content:
+        sections = content.split('\n')
+    # Otherwise, treat as single section
+    else:
+        sections = [content]
+    
     relevant_sections = []
     
     # Art exhibition specific keywords if none provided
@@ -607,16 +624,25 @@ def reduce_content_to_relevant_sections(content: str, keywords: List[str]) -> st
     keyword_pattern = '|'.join(re.escape(keyword.lower()) for keyword in keywords)
     
     for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+            
         # Check if section contains any keywords
         if re.search(keyword_pattern, section.lower()):
-            relevant_sections.append(section.strip())
+            relevant_sections.append(section)
     
-    # If no relevant sections found, return first few sections
+    # If no relevant sections found, return first few sections as fallback
     if not relevant_sections:
         relevant_sections = sections[:3]  # First 3 sections as fallback
     
-    # Join relevant sections and limit total size
-    result = '\n\n'.join(relevant_sections)
+    # Join relevant sections
+    if sections and '. ' in content:
+        # If we split by sentences, join with periods and spaces
+        result = ' '.join(relevant_sections)
+    else:
+        # Otherwise join with double newlines
+        result = '\n\n'.join(relevant_sections)
     
     # Ensure result doesn't exceed reasonable size
     if len(result) > 5000:
