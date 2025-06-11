@@ -1,45 +1,59 @@
+"""
+Modern SQLAlchemy 2.x model implementation following best practices.
+According to SQLAlchemy docs: Use Mapped[], mapped_column(), and async patterns.
+"""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Optional, List
+from typing import Optional, List, Annotated
 
-from sqlalchemy import (
-    String, Date, Numeric, Text,
-    ForeignKey, Integer, TIMESTAMP, UniqueConstraint, func
-)
+from sqlalchemy import String, Date, Numeric, Text, ForeignKey, TIMESTAMP, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
-# ---- Base ------------------------------------------------------------------
+# ---- Modern Base with proper typing ------------------------------------------------------------------
 class Base(DeclarativeBase):
+    """Modern DeclarativeBase following SQLAlchemy 2.x best practices"""
     pass
 
 
-# ---- Models ---------------------------------------------------------------
+# Type aliases for better readability (SQLAlchemy 2.x best practice)
+str_255 = Annotated[str, mapped_column(String(255))]
+str_100 = Annotated[str, mapped_column(String(100))]
+money = Annotated[Decimal, mapped_column(Numeric(10, 2))]
+percent = Annotated[Decimal, mapped_column(Numeric(5, 2))]
+
+
+# ---- Modern Models with proper typing ---------------------------------------------------------------
 class Exhibition(Base):
     __tablename__ = "exhibitions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    title: Mapped[str] = mapped_column(String(255)) # Title of the exhibition
-    date_start: Mapped[datetime] = mapped_column(Date) # Start date of the exhibition
-    date_end: Mapped[datetime] = mapped_column(Date) # End date of the exhibition
-    venue: Mapped[str] = mapped_column(String(255)) # Venue where the exhibition is held
-    location: Mapped[str] = mapped_column(String(255)) # Town or city where the exhibition is located
-    county: Mapped[Optional[str]] = mapped_column(String(100)) # County of the exhibition
-    description: Mapped[Optional[str]] = mapped_column(Text) # Description of the exhibition
-    url_id: Mapped[int] = mapped_column(ForeignKey("urls.id")) # Foreign key to the URL table
+    title: Mapped[str_255]  # Using type alias for consistency
+    date_start: Mapped[datetime] = mapped_column(Date)
+    date_end: Mapped[datetime] = mapped_column(Date)
+    venue: Mapped[str_255]
+    location: Mapped[str_255]
+    county: Mapped[Optional[str_100]] = None
+    description: Mapped[Optional[str]] = mapped_column(Text, default=None)
+    url_id: Mapped[int] = mapped_column(ForeignKey("urls.id"))
+    
+    # Better timestamp handling with timezone awareness
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=func.now()
-    )  # Timestamp when the exhibition was created
+        TIMESTAMP(timezone=True), 
+        default=lambda: datetime.now(timezone.utc)
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now()
-    )  # Timestamp when the exhibition was last updated
+        TIMESTAMP(timezone=True), 
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc)
+    )
 
-
-    entry_fees: Mapped[List["EntryFee"]] = relationship(back_populates="exhibition")
-    prizes:     Mapped[List["Prize"]]    = relationship(back_populates="exhibition")
-    url:        Mapped["Url"]            = relationship(back_populates="exhibitions")
+    # Relationships with proper typing
+    entry_fees: Mapped[List["EntryFee"]] = relationship(back_populates="exhibition", cascade="all, delete-orphan")
+    prizes: Mapped[List["Prize"]] = relationship(back_populates="exhibition", cascade="all, delete-orphan")
+    url: Mapped["Url"] = relationship(back_populates="exhibitions")
 
 
 class EntryFee(Base):
@@ -47,41 +61,39 @@ class EntryFee(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     exhibition_id: Mapped[int] = mapped_column(ForeignKey("exhibitions.id"))
-    fee_type: Mapped[str] = mapped_column(
-        String(10), default="tier", nullable=False
-    )  # 'tier' or 'flat'
-
-    number_entries: Mapped[Optional[int]] = mapped_column(Integer, nullable=True) # Number of entries for tiered fees, or None for flat fees
-    fee_amount:     Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2)) # Amount of the fee for each entry (e.g., 25.00)
-    flat_rate:      Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2)) # Flat rate fee for the exhibition, if applicable
-    commission_percent: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2)) # Commission percentage for the exhibition, if applicable
+    fee_type: Mapped[str] = mapped_column(String(10), default="tier")
+    
+    number_entries: Mapped[Optional[int]] = None
+    fee_amount: Mapped[Optional[money]] = None  # Using type alias
+    flat_rate: Mapped[Optional[money]] = None
+    commission_percent: Mapped[Optional[percent]] = None
 
     __table_args__ = (
-        # one tier per entry count
-        UniqueConstraint("exhibition_id", "number_entries",
-                         name="u_exh_entries"),
-        # application-level rule: only one flat row per exhibition
+        UniqueConstraint("exhibition_id", "number_entries", name="u_exh_entries"),
     )
 
     exhibition: Mapped["Exhibition"] = relationship(back_populates="entry_fees")
 
 
-
 class Prize(Base):
     __tablename__ = "prizes"
 
-    id: Mapped[int] = mapped_column(primary_key=True) # Unique identifier for the prize
-    exhibition_id:   Mapped[int] = mapped_column(ForeignKey("exhibitions.id")) # Foreign key to the exhibition table
-    prize_rank:      Mapped[Optional[int]] = mapped_column(Integer) # Rank of the prize (e.g., 1st, 2nd, 3rd)
-    prize_amount:    Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2)) # Amount of the prize for each award type
-    prize_type:      Mapped[Optional[str]] = mapped_column(String(50)) # Type of the prize (e.g., cash, gift card, etc.)
-    prize_description: Mapped[Optional[str]] = mapped_column(Text) # Description of the prize
+    id: Mapped[int] = mapped_column(primary_key=True)
+    exhibition_id: Mapped[int] = mapped_column(ForeignKey("exhibitions.id"))
+    prize_rank: Mapped[Optional[int]] = None
+    prize_amount: Mapped[Optional[money]] = None
+    prize_type: Mapped[Optional[str]] = mapped_column(String(50), default=None)
+    prize_description: Mapped[Optional[str]] = mapped_column(Text, default=None)
+    
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=func.now()
-    )  # Timestamp when the prize was created
+        TIMESTAMP(timezone=True), 
+        default=lambda: datetime.now(timezone.utc)
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now()
-    )  # Timestamp when the prize was last updated
+        TIMESTAMP(timezone=True), 
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc)
+    )
 
     exhibition: Mapped["Exhibition"] = relationship(back_populates="prizes")
 
@@ -89,18 +101,21 @@ class Prize(Base):
 class Url(Base):
     __tablename__ = "urls"
 
-    id: Mapped[int] = mapped_column(primary_key=True) # Unique identifier for the URL
-    raw_title:       Mapped[Optional[str]] = mapped_column(Text) # Raw title of the webpage
-    raw_date:        Mapped[Optional[str]] = mapped_column(Text) # Raw date extracted from the webpage
-    raw_location:    Mapped[Optional[str]] = mapped_column(Text) # Raw location extracted from the webpage
-    raw_description: Mapped[Optional[str]] = mapped_column(Text) # Raw description extracted from the webpage
-    url:             Mapped[str] = mapped_column(Text, unique=True) # URL of the webpage
-    # Timestamp when the URL was first seen
-    first_seen:      Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=func.now()
-    ) # Timestamp when the URL was last updated
+    id: Mapped[int] = mapped_column(primary_key=True)
+    raw_title: Mapped[Optional[str]] = mapped_column(Text, default=None)
+    raw_date: Mapped[Optional[str]] = mapped_column(Text, default=None)
+    raw_location: Mapped[Optional[str]] = mapped_column(Text, default=None)
+    raw_description: Mapped[Optional[str]] = mapped_column(Text, default=None)
+    url: Mapped[str] = mapped_column(Text, unique=True)
+    
+    first_seen: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), 
+        default=lambda: datetime.now(timezone.utc)
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now()
-    )  # Timestamp when the URL was last updated
+        TIMESTAMP(timezone=True), 
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc)
+    )
 
     exhibitions: Mapped[List["Exhibition"]] = relationship(back_populates="url")

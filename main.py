@@ -1,167 +1,398 @@
+"""
+Enhanced agent architecture following SmolAgents best practices.
+According to SmolAgents docs: Use clear role definition, proper error handling, and efficient workflows.
+"""
+import asyncio
+import os
+from typing import Optional
 from smolagents import (
     CodeAgent,
     ToolCallingAgent,
     InferenceClientModel,
-    DuckDuckGoSearchTool
+    DuckDuckGoSearchTool,
+    OpenAIServerModel
 )
-
-from tools.web_tools import scrape_website, close_popups, go_back, search_item_ctrl_f, save_screenshot
-from tools.database_tools import add_entry_fee, add_exhibition, add_url, add_prize, describe_schema
-
-from models.db import DatabaseManager
-
 from dotenv import load_dotenv
-import os
+
+from tools.web_tools import (
+    scrape_website_safely, 
+    enhanced_close_popups, 
+    enhanced_search_item,
+
+)
+from tools.database_tools import (
+    add_entry_fee_async,
+    add_exhibition_async,
+    add_url_async,
+    add_prize_async,
+    describe_schema,
+    get_unprocessed_urls_async,
+    get_exhibition_stats_async
+)
+from models.db import AsyncDatabaseManager
+import helium
+
 load_dotenv()
 
-db = DatabaseManager("art_events.db")
 
-scrape_model_id = "meta-llama/Llama-3.3-70B-Instruct"
-web_model_id = "meta-llama/Llama-3.3-70B-Instruct"
-manager_model_id = "Qwen/Qwen3-235B-A22B"
-browser_agent_model_id = "Qwen/Qwen2.5-VL-32B-Instruct"
-database_agent_model_id = "Qwen/Qwen2.5-Coder-32B-Instruct"
+class AgentConfig:
+    """Configuration for agents following SmolAgents best practices."""
 
-# Create the agent
-browser_agent = CodeAgent(
-    tools=[go_back, close_popups, search_item_ctrl_f],
-    model=InferenceClientModel(model_id=browser_agent_model_id, provider="hf-inference", token=os.environ['HF_TOKEN']),
-    additional_authorized_imports=["helium"],
-    step_callbacks=[save_screenshot],
-    max_steps=20,
-    verbosity_level=2,
-    name="Browser_Agent",
-    description="Can navigate with Helium, close pop-ups, press back, and do Ctrl+F searches.",
-)
-
-browser_agent.python_executor("from helium import *")
-
-websearch_agent = ToolCallingAgent(
-    model=InferenceClientModel(model_id=web_model_id, provider="hf-inference", token=os.environ['HF_TOKEN']),
-    tools=[DuckDuckGoSearchTool()],
-    max_steps=20,
-    name="Web_Search_Agent",
-    description="An agent that can search the web and collect useful URLs to add to the database",)
-
-website_scraper_agent = ToolCallingAgent(
-    model=InferenceClientModel(model_id=scrape_model_id, provider="hf-inference", token=os.environ['HF_TOKEN']),
-    tools=[scrape_website],
-    max_steps=20,
-    name="Website_Scraper_Agent",
-    description="An agent that can scrape websites for information and add it to the database",)
-
-database_agent = ToolCallingAgent(
-    model=InferenceClientModel(model_id=database_agent_model_id, provider="hf-inference", token=os.environ['HF_TOKEN']),
-    tools=[add_entry_fee, add_exhibition, add_url, add_prize, describe_schema],
-    max_steps=20,
-    name="Database_Agent",
-    description="An agent that can add entries to the database, including entry fees, exhibitions, URLs, and prizes.",)
-
-manager_agent = CodeAgent(
-    model=InferenceClientModel(model_id=manager_model_id, provider="hf-inference", token=os.environ['HF_TOKEN']),
-    tools=[],
-    managed_agents=[
-        browser_agent,
-        websearch_agent,
-        website_scraper_agent,  
-        database_agent
-    ],
-    max_steps=50,
-    name="Manager_Agent",
-    description="An agent that manages other agents, coordinating their actions and ensuring they work together effectively.",
-    additional_authorized_imports=["os", "time", "random"],)
-
-with open("helium_instructions.txt", "r") as f:
-    helium_instructions = f.read()
+    PROVIDER = "openai"  # 'hf-inference' or 'openai'
+    
+    if PROVIDER == "hf-inference":
+        SCRAPE_MODEL = "meta-llama/Llama-3.3-70B-Instruct"
+        WEB_MODEL = "meta-llama/Llama-3.3-70B-Instruct"
+        MANAGER_MODEL = "Qwen/Qwen3-32B"
+        BROWSER_MODEL = "Qwen/Qwen2.5-VL-32B-Instruct"
+        DATABASE_MODEL = "Qwen/Qwen2.5-Coder-32B-Instruct"
+    else:
+        SCRAPE_MODEL = "gpt-4o"
+        WEB_MODEL = "gpt-4o"
+        MANAGER_MODEL = "gpt-4.1"
+        BROWSER_MODEL = "gpt-4o"
+        DATABASE_MODEL = "gpt-4o"
+    
+    # Agent parameters following best practices
+    MAX_STEPS_WORKER = 15  # Reduced from 20 for efficiency
+    MAX_STEPS_MANAGER = 40  # Reduced from 50 for efficiency
+    VERBOSITY = 1  # Reduced verbosity for cleaner logs
+    
+    # According to SmolAgents best practices: Use planning intervals
+    PLANNING_INTERVAL = 3
 
 
-task = """
-Your goal is to discover every open-call art exhibition or art fair in the UK from January 2023 to July 2026, where the current date is 10th June 2025.
-The aim is to look at past exhibitions to find patterns in the data, such as the number of entries, fees, and prizes as well as future exhibitions.
+class EnhancedAgentOrchestrator:
+    """
+    Enhanced multi-agent orchestrator following SmolAgents best practices.
+    According to docs: Clear role definition, minimal overlap, proper error handling.
+    """
+    
+    def __init__(self, db_manager: AsyncDatabaseManager):
+        self.db = db_manager
+        self.config = AgentConfig()
+        self.agents: dict = {}
+        self._setup_agents()
+    
+    def _create_base_model(self, model_id: str) -> InferenceClientModel:
+        """Create base model with consistent configuration."""
+        return InferenceClientModel(
+            model_id=model_id,
+            provider="hf-inference",
+            token=os.environ['HF_TOKEN']
+        )
+    
+    def _create_server_model(self, model_id: str) -> OpenAIServerModel:
+        """Create server model with consistent configuration."""
+        return OpenAIServerModel(
+            model_id=model_id,
+            api_key=os.environ['OPENAI_API_KEY']
+        )
+    
+    def _create_model(self, model_id: str) -> Optional[object]:
+        """
+        Create model based on provider.
+        According to SmolAgents best practices: Use consistent model creation.
+        """
+        if self.config.PROVIDER == "hf-inference":
+            return self._create_base_model(model_id)
+        elif self.config.PROVIDER == "openai":
+            return self._create_server_model(model_id)
+        else:
+            raise ValueError(f"Unsupported provider: {self.config.PROVIDER}")
+    
+    def _setup_agents(self):
+        """
+        Setup agents following SmolAgents best practices.
+        According to docs: Clear role definition and appropriate tools.
+        """
+        
+        # Browser Agent - Specialized for navigation only
+        # According to best practices: Minimal, focused responsibilities
+        self.agents['browser'] = CodeAgent(
+            tools=[enhanced_close_popups, enhanced_search_item],
+            model=self._create_model(self.config.BROWSER_MODEL),
+            additional_authorized_imports=["helium", "time"],
+            max_steps=self.config.MAX_STEPS_WORKER,
+            verbosity_level=self.config.VERBOSITY,
+            planning_interval=self.config.PLANNING_INTERVAL,
+            name="Browser_Navigation_Agent",
+            description=(
+                "Specialized agent for browser navigation tasks. "
+                "Can close popups, search for text on pages, and navigate browser elements. "
+                "Does NOT scrape content - only handles navigation."
+            ),
+        )
+        
+        # Web Search Agent - Enhanced with better descriptions
+        self.agents['search'] = ToolCallingAgent(
+            model=self._create_model(self.config.BROWSER_MODEL),
+            tools=[DuckDuckGoSearchTool()],
+            max_steps=self.config.MAX_STEPS_WORKER,
+            verbosity_level=self.config.VERBOSITY,
+            planning_interval=self.config.PLANNING_INTERVAL,
+            provide_run_summary=True,  # According to best practices
+            name="Web_Search_Specialist",
+            description=(
+                "Specialized agent for web search operations. "
+                "Finds relevant URLs for art exhibitions, open calls, and art fairs in the UK. "
+                "Returns structured lists of URLs with descriptions."
+            ),
+        )
+        
+        # Content Scraper - Separated from navigation
+        self.agents['scraper'] = ToolCallingAgent(
+            model=self._create_model(self.config.BROWSER_MODEL),
+            tools=[scrape_website_safely],
+            max_steps=self.config.MAX_STEPS_WORKER,
+            verbosity_level=self.config.VERBOSITY,
+            planning_interval=self.config.PLANNING_INTERVAL,
+            provide_run_summary=True,
+            name="Content_Extraction_Specialist",
+            description=(
+                "Specialized agent for content extraction from websites. "
+                "Extracts exhibition details, entry fees, prizes, and venue information. "
+                "Uses rate-limited scraping to avoid blocking."
+            ),
+        )
+        
+        # Database Agent - Enhanced with validation
+        self.agents['database'] = ToolCallingAgent(
+            model=self._create_model(self.config.BROWSER_MODEL),
+            tools=[add_entry_fee_async, add_exhibition_async, add_url_async, add_prize_async, describe_schema, get_unprocessed_urls_async, get_exhibition_stats_async],
+            max_steps=self.config.MAX_STEPS_WORKER,
+            verbosity_level=self.config.VERBOSITY,
+            planning_interval=self.config.PLANNING_INTERVAL,
+            provide_run_summary=True,
+            name="Database_Management_Specialist",
+            description=(
+                "Specialized agent for database operations. "
+                "Stores exhibition data, entry fees, prizes, and URLs with validation. "
+                "Ensures data consistency and handles duplicates properly."
+            ),
+        )
+        
+        # Manager Agent - Following best practices for coordination
+        self.agents['manager'] = CodeAgent(
+            model=self._create_model(self.config.BROWSER_MODEL),
+            tools=[get_exhibition_stats_async, get_unprocessed_urls_async],  # Manager doesn't need direct tools
+            managed_agents=list(self.agents.values()),
+            max_steps=self.config.MAX_STEPS_MANAGER,
+            verbosity_level=self.config.VERBOSITY,
+            planning_interval=self.config.PLANNING_INTERVAL,
+            name="Research_Coordinator",
+            description=(
+                "Coordinates the art exhibition research process. "
+                "Delegates tasks to specialized agents and ensures efficient workflow. "
+                "Can monitor database statistics and track unprocessed URLs. "
+                "Focuses on high-level strategy and result integration."
+            ),
+            additional_authorized_imports=["asyncio", "time", "random", "json", "re", "datetime", "logging", "helium"],
+        )
+    
+    def get_agent(self, agent_type: str) -> Optional[object]:
+        """Get agent by type with validation."""
+        return self.agents.get(agent_type)
+    
+    def get_manager(self) -> CodeAgent:
+        """Get the manager agent."""
+        return self.agents['manager']
+    
+    async def run_research_task(self, task_description: str) -> str:
+        """
+        Run the research task with proper error handling.
+        According to best practices: Implement proper error recovery.
+        """
+        try:
+            # Initialize browser for the browser agent
+            browser_agent = self.get_agent('browser')
+            if browser_agent:
+                browser_agent.python_executor("from helium import *")
+            
+            # Run the task through the manager
+            manager = self.get_manager()
+            result = manager.run(task_description, max_steps=self.config.MAX_STEPS_MANAGER)
+            
+            return result
+            
+        except Exception as e:
+            error_msg = f"Research task failed: {str(e)}"
+            print(error_msg)
+            return error_msg
+    
+    def cleanup(self):
+        """Clean up agent resources."""
+        # Close any browser sessions
+        try:
+            helium.kill_browser()
+        except Exception:
+            pass
 
-To achieve this, you will use the following agents:
-1. **Web Search Agent**: To find URLs of open-call art exhibitions in the UK.
-2. **Browser Agent**: To navigate to the URLs, close pop-ups, and perform searches on the pages.
-3. **Website Scraper Agent**: To scrape the relevant information from the websites.
-4. **Database Agent**: To add the scraped information to the database.
 
-The database schema is available in the `describe_schema` tool, which provides the structure of the database and the fields required for each table.
-Please review this schema before starting the task to ensure you understand how to populate the database correctly.
-The aim is to populate the database with the following information for each exhibition:
-- **Title**: The name of the exhibition.
-- **Date Start**: The start date of the exhibition.
-- **Date End**: The end date of the exhibition.
-- **Venue**: The venue where the exhibition is held.
-- **Location**: The city or town where the exhibition is located.
-- **County**: The county where the exhibition is located.
-- **Description**: A brief description of the exhibition.
+def create_enhanced_task_prompt() -> str:
+    """
+    Create enhanced task prompt following SmolAgents best practices.
+    According to docs: Make task very clear and provide specific guidance.
+    """
+    
+    with open("helium_instructions.txt", "r") as f:
+        helium_instructions = f.read()
+    
+    task = """
+    DATABASE SCHEMA:
+    
+    Table: urls
+    - id: INTEGER (Primary Key)
+    - url: VARCHAR(255) - The exhibition URL
+    - raw_title: TEXT - Raw scraped title
+    - raw_date: VARCHAR(100) - Raw scraped date
+    - raw_location: VARCHAR(255) - Raw scraped location
+    - raw_description: TEXT - Raw scraped description
+    - created_at, updated_at: TIMESTAMP
+    
+    Table: exhibitions  
+    - id: INTEGER (Primary Key)
+    - title: VARCHAR(255) - Exhibition title
+    - date_start: DATE - Start date
+    - date_end: DATE - End date
+    - venue: VARCHAR(255) - Venue name
+    - location: VARCHAR(255) - Location
+    - county: VARCHAR(100) - UK county
+    - description: TEXT - Exhibition description
+    - url_id: INTEGER (Foreign Key -> urls.id)
+    - created_at, updated_at: TIMESTAMP
+    
+    Table: entry_fees
+    - id: INTEGER (Primary Key)
+    - exhibition_id: INTEGER (Foreign Key -> exhibitions.id)
+    - fee_type: VARCHAR(100) - Type of fee
+    - amount: DECIMAL(10,2) - Fee amount
+    - currency: VARCHAR(10) - Currency code
+    - description: TEXT - Fee description
+    
+    Table: prizes
+    - id: INTEGER (Primary Key)  
+    - exhibition_id: INTEGER (Foreign Key -> exhibitions.id)
+    - prize_name: VARCHAR(255) - Prize name
+    - amount: DECIMAL(10,2) - Prize amount
+    - currency: VARCHAR(10) - Currency code
+    - description: TEXT - Prize description
 
-Then to populate the database with the following information for each entry fee:
-- **Fee Type**: The type of fee (e.g., tiered or flat).
-- **Number of Entries**: The number of entries for tiered fees, or None for flat fees.
-- **Fee Amount**: The amount of the fee for each entry (e.g., 25.00).
-- **Flat Rate**: The flat rate fee for the exhibition, if applicable.
-- **Commission Percent**: The commission percentage for the exhibition, if applicable.
+    **TASK: ART EXHIBITION RESEARCH COORDINATOR**
 
-Then to populate the database with the following information for each prize:
-- **Prize Rank**: The rank of the prize (e.g., 1st, 2nd, etc.).
-- **Prize Amount**: The amount of the prize for each award type.
-- **Prize Type**: The type of the prize (e.g., cash, gift card, etc.).
-- **Prize Description**: A description of the prize.
+    **OBJECTIVE:**
 
-The urls during the research should be saved in the database and for each URL, the following information should be saved:
-- **raw_title**: The raw title of the page.
-- **raw_date**: The raw date of the exhibition.
-- **raw_location**: The raw location of the exhibition.
-- **raw_description**: The raw description of the exhibition.
+    Systematically discover, extract, and catalog UK art exhibitions and open calls for the period of January 2023 to July 2026. 
+    The current date is June 11, 2025 and therefore looking for data on past, present and future events. The primary goal is to build a comprehensive database to analyze trends in entry fees, prizes, and exhibition frequency.
 
-You will start by using the Web Search Agent to find URLs of open-call art exhibitions in the UK in the specified date range.
-Try to find URLs that are likely to contain information about the exhibitions, such as "open call", "art exhibition", "art fair", etc. and save them in the database.
-Try to look at aggregator websites that list multiple exhibitions, such as "ArtRabbit", "Artlyst", "The Art Newspaper", etc. These websites often have a list of exhibitions and open calls, which can be useful for your research.
-During this research process the URLs should be saved in the database with the following information if available:
-- **raw_title**: The raw title of the page.
-- **raw_date**: The raw date of the exhibition.
-- **raw_location**: The raw location of the exhibition.
-- **raw_description**: The raw description of the exhibition.
+    **SUCCESS CRITERIA:**
 
-Then, use the Browser Agent to navigate to these URLs, close any pop-ups, and perform searches on the pages to find the relevant information.
-Once you have found the relevant information, use the Website Scraper Agent to scrape the information and add it to the database using the Database Agent.
-The information required for the database is as follows:
-- **Title**: The name of the exhibition.
-- **Date Start**: The start date of the exhibition.
-- **Date End**: The end date of the exhibition.
-- **Venue**: The venue where the exhibition is held.
-- **Location**: The city or town where the exhibition is located.
-- **County**: The county where the exhibition is located.
-- **Description**: A brief description of the exhibition.
-Once you have scraped the information, use the Database Agent to add the entry fees and prizes to the database.
+    * **Volume:** Collect and store 1000+ unique exhibition entries.
+    * **Completeness:** Include complete entry fee structures (tiered, flat) and capture prize information where available.
+    * **Data Integrity:** Maintain high standards of data quality and consistency.
 
-You will also need to add the entry fees and prizes to the database.
-The entry fees should include the following information:
-- **Fee Type**: The type of fee (e.g., tiered or flat).
-- **Number of Entries**: The number of entries for tiered fees, or None for flat fees.
-- **Fee Amount**: The amount of the fee for each entry (e.g., 25.00).
-- **Flat Rate**: The flat rate fee for the exhibition, if applicable.
-- **Commission Percent**: The commission percentage for the exhibition, if applicable.
+    **AGENT WORKFLOW (Iterative Sequence):**
 
-The prizes should include the following information:
-- **Prize Rank**: The rank of the prize (e.g., 1st, 2nd, etc.).
-- **Prize Amount**: The amount of the prize for each award type.
-- **Prize Type**: The type of the prize (e.g., cash, gift card, etc.).
+    This task follows a structured, iterative workflow. After an initial search phase, you will process and save data for one URL at a time.
+    It may be helpful to review the database schema before starting the task. The schema is available in the `describe_schema` tool.
 
-The agents will work together to ensure that all relevant information is collected and added to the database.
+    1.  **SEARCH PHASE (Web_Search_Specialist):**
+        * **Find Aggregators:** Identify UK art exhibition aggregator sites, prioritizing `ArtRabbit`, `Artlyst`, and `The Art Newspaper`.
+        * **Search Topics:** Use queries like `"UK art open call 2023"`, `"UK art open call 2024"`, `"UK art open call 2025"`, 
+        `"UK art open call 2026"`, `"UK art exhibition 2024"`, and `"UK art fair 2025"`.
+        * **URL Collection:** Collect an initial batch of 100-200 relevant URLs before proceeding to the next phase.
 
-The summary of the task is as follows:
-1. Use the Web Search Agent to find URLs of open-call art exhibitions in the UK.
-2. Use the Browser Agent to navigate to the URLs, close pop-ups, and perform searches on the pages.
-3. Use the Website Scraper Agent to scrape the relevant information from the websites.
-4. Use the Database Agent to add the scraped information to the database, including exhibitions, entry fees, and prizes.
+    2.  **ITERATIVE PROCESSING LOOP (For each URL):**
 
-The aim is to find as many open-call art exhibitions as possible in the UK from January 2023 to July 2026, idealy with the fee information artists pay to enter.
-Aim for around 1000 entries in the database.
-"""
+        * **A. NAVIGATION PHASE (Browser_Navigation_Agent):**
+            * Navigate to the next URL in the queue.
+            * Handle any pop-ups or cookie banners to access page content.
+            * Search the page for key terms: `"entry fee"`, `"submission fee"`, `"prize"`.
 
-prompt = task + "\n\n" + helium_instructions
+        * **B. EXTRACTION & STORAGE PHASE (Content_Extraction_Specialist & Database_Management_Specialist):**
+            * This phase must be completed for each URL before starting the next.
+            * **Extraction:**
+                * **Exhibition Details:** Extract `title`, `dates`, `venue`, `location`, `county`, `description`.
+                * **Fee Structures:** Extract `fee type` (tiered vs flat) and associated costs.
+                * **Prize Information:** Extract `prize rank`, `amount`, and `type`.
+            * **Storage (Immediate & Sequential):**
+                * **First:** Store the URL with its raw, unprocessed data using a function like `add_url_async()`.
+                * **Then:** Store the structured exhibition details using `add_exhibition_async()`.
+                * **Then:** Store the structured entry fee information using `add_entry_fee_async()`.
+                * **Finally:** Store the structured prize information using `add_prize_async()`.
 
-# Run the manager agent with the task
-manager_agent.run(prompt, max_steps=50)
+    **DATA QUALITY REQUIREMENTS:**
+
+    * **Date Format:** Validate all dates are in `YYYY-MM-DD` format.
+    * **Numeric Fees:** Ensure all fee and prize amounts are numeric (e.g., `25.00`).
+    * **Deduplication:** Check for and prevent duplicate URL or exhibition entries.
+    * **Field Verification:** Verify that all required database fields are present before storage.
+
+    **ERROR HANDLING:**
+
+    * **Retries:** Retry failed network requests up to 3 times.
+    * **Skip & Log:** If a URL remains problematic, log the error and skip to the next URL. The process must not stop.
+    * **Rate Limiting:** Implement a randomized delay of 2-8 seconds between requests.
+
+    **EFFICIENCY & COORDINATION STRATEGY:**
+
+    * **Batching:** Process URLs in logical batches of 10-20 to manage workflow.
+    * **Prioritization:** Prioritize high-value aggregator sites and exhibitions with clear fee structures.
+    * **SmolAgents Best Practices:** Reduce LLM calls by batching similar operations (like the initial search) and using deterministic validation (e.g., regex for dates) wherever possible. Delegate specialized tasks to the appropriate agents and integrate results efficiently.
+    """
+    
+    return task + "\n\n" + helium_instructions
+
+
+# Usage example and factory function
+async def create_research_system() -> EnhancedAgentOrchestrator:
+    """
+    Factory function to create the enhanced research system.
+    According to best practices: Proper initialization and resource management.
+    """
+    # Initialize async database
+    db_manager = AsyncDatabaseManager()
+    await db_manager.initialize_database()
+    
+    # Create agent orchestrator
+    orchestrator = EnhancedAgentOrchestrator(db_manager)
+    
+    return orchestrator
+
+
+# Main execution function
+async def run_enhanced_research():
+    """
+    Main function to run the enhanced research system.
+    According to best practices: Proper async handling and cleanup.
+    """
+    orchestrator = None
+    try:
+        # Create and initialize system
+        orchestrator = await create_research_system()
+        
+        # Create enhanced task prompt
+        task_prompt = create_enhanced_task_prompt()
+        
+        # Run the research task
+        result = await orchestrator.run_research_task(task_prompt)
+        
+        print("Research completed!")
+        print(f"Result: {result}")
+        
+        return result
+        
+    except Exception as e:
+        print(f"Research system error: {e}")
+        return None
+        
+    finally:
+        # Clean up resources
+        if orchestrator:
+            orchestrator.cleanup()
+            await orchestrator.db.close()
+
+
+if __name__ == "__main__":
+    # Run the enhanced research system
+    asyncio.run(run_enhanced_research())
