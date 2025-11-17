@@ -5,6 +5,7 @@ According to web scraping best practices: Use rate limiting, proxy rotation, and
 import asyncio
 import atexit
 import random
+import re
 import time
 from typing import Optional
 from dataclasses import dataclass
@@ -20,7 +21,6 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
-from smolagents.agents import ActionStep
 
 
 @dataclass
@@ -112,7 +112,7 @@ _scraper = RateLimitedScraper()
 
 
 @tool
-async def scrape_website_safely(url: str) -> str:
+async def scrape_website(url: str) -> str:
     """
     Enhanced website scraping with rate limiting and error handling.
     
@@ -128,33 +128,7 @@ async def scrape_website_safely(url: str) -> str:
         if not html_content:
             return f"Failed to scrape {url} - no content retrieved"
         
-        soup = BeautifulSoup(html_content, 'html.parser')
-        
-        # Extract text content more efficiently
-        # Remove script and style elements
-        for script in soup(["script", "style"]):
-            script.decompose()
-        
-        text_content = soup.get_text(strip=True, separator=' ')
-        
-        # Extract all links with better filtering
-        links = []
-        for link in soup.find_all('a', href=True):
-            # Ensure we have a Tag element that supports the get method
-            if hasattr(link, 'get'):
-                href = link.get('href')
-                if href and not href.startswith(('#', 'javascript:', 'mailto:')):
-                    links.append(href)
-        
-        # Limit output size to prevent token overflow
-        if len(text_content) > 10000:
-            text_content = text_content[:10000] + "... [TRUNCATED]"
-        
-        if len(links) > 50:
-            links = links[:50] + ["... [MORE LINKS TRUNCATED]"]
-        
-        result = f"Text Content:\n{text_content}\n\nLinks:\n" + '\n'.join(links)
-        return result
+        return await extract_exhibition_data(html_content)
         
     except Exception as e:
         return f"Error scraping {url}: {str(e)}"
@@ -368,103 +342,76 @@ def cleanup_resources():
     if _browser_manager:
         _browser_manager.close_browser()
 
-# Synchronous scraping implementation
+
+def extract_prices_with_regex(text: str) -> list[str]:
+    """Extracts prices from text using regex."""
+    # Regex to find prices with currency symbols or codes
+    price_pattern = r'(\£|\$|€|GBP|USD|EUR)\s?\d{1,3}(?:,?\d{3})*(?:\.\d{2})?'
+    return re.findall(price_pattern, text)
+
+
+def extract_dates_with_regex(text: str) -> list[str]:
+    """Extracts dates from text using regex."""
+    # Regex for various date formats (e.g., YYYY-MM-DD, DD/MM/YYYY, DD Month YYYY)
+    date_pattern = r'\b(\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4}|\d{1,2}\s(?:January|February|March|April|May|June|July|August|September|October|November|December)\s\d{4})\b'
+    return re.findall(date_pattern, text)
+
+
 @tool
-def scrape_website(url: str) -> str:
+async def extract_exhibition_data(html_content: str) -> str:
     """
-    Enhanced website scraping with rate limiting and error handling (synchronous implementation).
+    Extracts relevant exhibition data from HTML content.
     
     Args:
-        url (str): The URL to scrape for text and links.
+        html_content (str): The HTML content of the page.
         
     Returns:
-        A string containing the extracted text content and links from the website.
-        Returns an error message string if scraping fails.
+        A string containing the extracted and summarized exhibition data.
     """
     try:
-        import time
-        import random
-        import requests
+        soup = BeautifulSoup(html_content, 'html.parser')
         
-        # Try BeautifulSoup first, fall back to basic parsing if not available
-        try:
-            from bs4 import BeautifulSoup
-            use_bs4 = True
-        except ImportError:
-            use_bs4 = False
+        # Remove script and style elements
+        for script in soup(["script", "style"]):
+            script.decompose()
         
-        # Simple rate limiting
-        time.sleep(random.uniform(2.0, 8.0))
+        # Get text content
+        text_content = soup.get_text(strip=True, separator=' ')
         
-        # Create session with user agent
-        session = requests.Session()
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        ]
+        # Reduce content to relevant sections
+        keywords = ["entry fee", "submission fee", "prize", "deadline", "exhibition dates"]
+        relevant_sections = []
+        for keyword in keywords:
+            if keyword in text_content.lower():
+                # Find all occurrences of the keyword and extract surrounding text
+                for match in re.finditer(keyword, text_content, re.IGNORECASE):
+                    start, end = match.span()
+                    # Extract a window of text around the keyword
+                    window_start = max(0, start - 200)
+                    window_end = min(len(text_content), end + 200)
+                    relevant_sections.append(text_content[window_start:window_end])
         
-        session.headers.update({
-            'User-Agent': random.choice(user_agents)
-        })
-        
-        # Make the request
-        response = session.get(url, timeout=30)
-        response.raise_for_status()
-        
-        if use_bs4:
-            # Parse with BeautifulSoup
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Extract text content more efficiently
-            # Remove script and style elements
-            for script in soup(["script", "style"]):
-                script.decompose()
-            
-            text_content = soup.get_text(strip=True, separator=' ')
-            
-            # Extract all links with better filtering
-            links = []
-            for link in soup.find_all('a', href=True):
-                # Ensure we have a Tag element that supports the get method
-                if hasattr(link, 'get'):
-                    href = link.get('href')
-                    if href and not href.startswith(('#', 'javascript:', 'mailto:')):
-                        links.append(href)
-        else:
-            # Fallback: basic text extraction using regex
-            import re
-            
-            # Remove script and style tags
-            text_content = re.sub(r'<script[^>]*>.*?</script>', '', response.text, flags=re.DOTALL | re.IGNORECASE)
-            text_content = re.sub(r'<style[^>]*>.*?</style>', '', text_content, flags=re.DOTALL | re.IGNORECASE)
-            
-            # Remove HTML tags
-            text_content = re.sub(r'<[^>]+>', ' ', text_content)
-            
-            # Clean up whitespace
-            text_content = re.sub(r'\s+', ' ', text_content).strip()
-            
-            # Extract links using regex
-            link_pattern = r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>'
-            links = re.findall(link_pattern, response.text, re.IGNORECASE)
-            
-            # Filter links
-            links = [href for href in links if href and not href.startswith(('#', 'javascript:', 'mailto:'))]
+        if relevant_sections:
+            text_content = " ".join(relevant_sections)
         
         # Limit output size to prevent token overflow
-        if len(text_content) > 10000:
-            text_content = text_content[:10000] + "... [TRUNCATED]"
+        if len(text_content) > 4000:
+            text_content = text_content[:4000] + "... [TRUNCATED]"
+
+        # Extract structured data using regex
+        prices = extract_prices_with_regex(text_content)
+        dates = extract_dates_with_regex(text_content)
         
-        if len(links) > 50:
-            links = links[:50] + ["... [MORE LINKS TRUNCATED]"]
+        result = (
+            f"Extracted Text Content:\n{text_content}\n\n"
+            f"Detected Prices: {prices}\n"
+            f"Detected Dates: {dates}"
+        )
         
-        result = f"Text Content:\n{text_content}\n\nLinks:\n" + '\n'.join(links)
-        session.close()
         return result
         
     except Exception as e:
-        return f"Error scraping {url}: {str(e)}"
+        return f"Error extracting exhibition data: {str(e)}"
 
 
 atexit.register(cleanup_resources)
