@@ -5,8 +5,8 @@ According to web scraping best practices: Use rate limiting, proxy rotation, and
 import asyncio
 import atexit
 import random
-import re
 import time
+import re
 from typing import Optional
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
@@ -128,7 +128,7 @@ async def scrape_website(url: str) -> str:
         if not html_content:
             return f"Failed to scrape {url} - no content retrieved"
         
-        return await extract_exhibition_data(html_content)
+        return extract_exhibition_data(html_content)
         
     except Exception as e:
         return f"Error scraping {url}: {str(e)}"
@@ -343,22 +343,31 @@ def cleanup_resources():
         _browser_manager.close_browser()
 
 
-def extract_prices_with_regex(text: str) -> list[str]:
-    """Extracts prices from text using regex."""
+def _extract_prices_with_regex(text: str) -> list[str]:
+    """Extracts prices from text using regex (private helper function)."""
     # Regex to find prices with currency symbols or codes
-    price_pattern = r'(\£|\$|€|GBP|USD|EUR)\s?\d{1,3}(?:,?\d{3})*(?:\.\d{2})?'
+    price_pattern = r'(£|\$|€|GBP|USD|EUR)\s?\d{1,3}(?:,?\d{3})*(?:\.\d+)?'
     return re.findall(price_pattern, text)
 
 
-def extract_dates_with_regex(text: str) -> list[str]:
-    """Extracts dates from text using regex."""
-    # Regex for various date formats (e.g., YYYY-MM-DD, DD/MM/YYYY, DD Month YYYY)
-    date_pattern = r'\b(\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4}|\d{1,2}\s(?:January|February|March|April|May|June|July|August|September|October|November|December)\s\d{4})\b'
+def _extract_dates_with_regex(text: str) -> list[str]:
+    """Extracts dates from text using regex (private helper function)."""
+    # Regex for various date formats (e.g., YYYY-MM-DD, DD/MM/YYYY, DD Month YYYY, including abbreviated months)
+    date_pattern = (
+        r'\b('
+        r'\d{4}-\d{2}-\d{2}'  # YYYY-MM-DD
+        r'|\d{2}/\d{2}/\d{4}'  # DD/MM/YYYY
+        r'|\d{1,2}\s(?:'
+        r'January|February|March|April|May|June|July|August|September|October|November|December|'
+        r'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec'
+        r')\.?\s\d{4}'        # optional period after abbreviated month, then year
+        r')\b'
+    )
     return re.findall(date_pattern, text)
 
 
 @tool
-async def extract_exhibition_data(html_content: str) -> str:
+def extract_exhibition_data(html_content: str) -> str:
     """
     Extracts relevant exhibition data from HTML content.
     
@@ -378,20 +387,33 @@ async def extract_exhibition_data(html_content: str) -> str:
         # Get text content
         text_content = soup.get_text(strip=True, separator=' ')
         
-        # Reduce content to relevant sections
+        # Reduce content to relevant sections with window merging
         keywords = ["entry fee", "submission fee", "prize", "deadline", "exhibition dates"]
-        relevant_sections = []
+        windows: list[tuple[int, int]] = []
         for keyword in keywords:
             if keyword in text_content.lower():
-                # Find all occurrences of the keyword and extract surrounding text
+                # Find all occurrences of the keyword and collect surrounding text windows
                 for match in re.finditer(keyword, text_content, re.IGNORECASE):
                     start, end = match.span()
                     # Extract a window of text around the keyword
                     window_start = max(0, start - 200)
                     window_end = min(len(text_content), end + 200)
-                    relevant_sections.append(text_content[window_start:window_end])
-        
-        if relevant_sections:
+                    windows.append((window_start, window_end))
+
+        if windows:
+            # Merge overlapping windows to avoid redundant overlapping text
+            windows.sort(key=lambda w: w[0])
+            merged_windows: list[tuple[int, int]] = []
+            cur_start, cur_end = windows[0]
+            for start, end in windows[1:]:
+                if start <= cur_end:
+                    cur_end = max(cur_end, end)
+                else:
+                    merged_windows.append((cur_start, cur_end))
+                    cur_start, cur_end = start, end
+            merged_windows.append((cur_start, cur_end))
+
+            relevant_sections = [text_content[s:e] for s, e in merged_windows]
             text_content = " ".join(relevant_sections)
         
         # Limit output size to prevent token overflow
@@ -399,8 +421,8 @@ async def extract_exhibition_data(html_content: str) -> str:
             text_content = text_content[:4000] + "... [TRUNCATED]"
 
         # Extract structured data using regex
-        prices = extract_prices_with_regex(text_content)
-        dates = extract_dates_with_regex(text_content)
+        prices = _extract_prices_with_regex(text_content)
+        dates = _extract_dates_with_regex(text_content)
         
         result = (
             f"Extracted Text Content:\n{text_content}\n\n"
