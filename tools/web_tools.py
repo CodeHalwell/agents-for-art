@@ -5,8 +5,8 @@ According to web scraping best practices: Use rate limiting, proxy rotation, and
 import asyncio
 import atexit
 import random
-import time
 import re
+import time
 from typing import Optional
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
@@ -346,7 +346,7 @@ def cleanup_resources():
 def _extract_prices_with_regex(text: str) -> list[str]:
     """Extracts prices from text using regex (private helper function)."""
     # Regex to find prices with currency symbols or codes
-    price_pattern = r'(?:£|\$|€|GBP|USD|EUR)\s?\d{1,3}(?:,?\d{3})*(?:\.\d+)?'
+    price_pattern = r'(?:£|\$|€|GBP|USD|EUR)\s?\d{1,3}(?:,?\d{3})*(?:\.\d{1,2})?'
     return re.findall(price_pattern, text)
 
 
