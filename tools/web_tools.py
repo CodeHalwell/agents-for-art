@@ -346,7 +346,7 @@ def cleanup_resources():
 def _extract_prices_with_regex(text: str) -> list[str]:
     """Extracts prices from text using regex (private helper function)."""
     # Regex to find prices with currency symbols or codes
-    price_pattern = r'(£|\$|€|GBP|USD|EUR)\s?\d{1,3}(?:,?\d{3})*(?:\.\d+)?'
+    price_pattern = r'(?:£|\$|€|GBP|USD|EUR)\s?\d{1,3}(?:,?\d{3})*(?:\.\d+)?'
     return re.findall(price_pattern, text)
 
 
@@ -354,7 +354,7 @@ def _extract_dates_with_regex(text: str) -> list[str]:
     """Extracts dates from text using regex (private helper function)."""
     # Regex for various date formats (e.g., YYYY-MM-DD, DD/MM/YYYY, DD Month YYYY, including abbreviated months)
     date_pattern = (
-        r'\b('
+        r'\b(?:'
         r'\d{4}-\d{2}-\d{2}'  # YYYY-MM-DD
         r'|\d{2}/\d{2}/\d{4}'  # DD/MM/YYYY
         r'|\d{1,2}\s(?:'
