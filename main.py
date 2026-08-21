@@ -63,7 +63,6 @@ class AgentConfig:
     MAX_STEPS_WORKER = 8
     MAX_STEPS_MANAGER = 25
     VERBOSITY = 1
-    PLANNING_INTERVAL = 2
 
 
 class OptimizedAgentOrchestrator:
@@ -72,7 +71,7 @@ class OptimizedAgentOrchestrator:
     """
     
     def __init__(self, db_manager: AsyncDatabaseManager):
-        self.db = db_manager
+        self.db_manager = db_manager
         self.config = AgentConfig()
         self.agents: dict = {}
         self._setup_agents()
@@ -83,12 +82,12 @@ class OptimizedAgentOrchestrator:
             return InferenceClientModel(
                 model_id=model_id,
                 provider="hf-inference",
-                token=os.environ.get('HF_TOKEN')
+                token=os.environ['HF_TOKEN']
             )
         elif self.config.PROVIDER == "openai":
             return OpenAIServerModel(
                 model_id=model_id,
-                api_key=os.environ.get('OPENAI_API_KEY')
+                api_key=os.environ['OPENAI_API_KEY']
             )
         else:
             raise ValueError(f"Unsupported provider: {self.config.PROVIDER}")
@@ -105,7 +104,8 @@ class OptimizedAgentOrchestrator:
             max_steps=self.config.MAX_STEPS_WORKER,
             verbosity_level=self.config.VERBOSITY,
             name="Browser_Navigation_Agent",
-            description="Handles browser navigation, popups, and searching for text on pages."
+            description="Handles browser navigation, popups, and searching for text on pages.",
+            additional_authorized_imports=["helium"]
         )
         
         # Web Search Agent for discovering URLs
@@ -238,7 +238,7 @@ async def run_optimized_research():
     finally:
         if orchestrator:
             orchestrator.cleanup()
-            await orchestrator.db.close()
+            await orchestrator.db_manager.close()
 
 
 if __name__ == "__main__":
